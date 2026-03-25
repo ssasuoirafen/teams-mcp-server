@@ -272,6 +272,31 @@ async def reply_to_channel_message(
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
 
+# Tool: create_chat
+# Annotations: openWorldHint=True
+@mcp.tool()
+async def create_chat(user_email: str, message: str) -> str:
+    """Create a new 1:1 chat with a user and send the first message.
+
+    Use this when no existing chat is found via list_chats.
+    Requires the user's email address (e.g. amaksudov@avo.uz)."""
+    _init_if_needed()
+    client = _require_auth()
+    users = await client.find_user(user_email.split("@")[0])
+    if not users:
+        return json.dumps({"status": "error", "message": f"User not found: {user_email}"})
+    user = next((u for u in users if u.get("mail", "").lower() == user_email.lower()), users[0])
+    chat = await client.create_chat(user["id"])
+    chat_id = chat["id"]
+    msg = await client.send_chat_message(chat_id, message)
+    return json.dumps({
+        "status": "sent",
+        "chat_id": chat_id,
+        "message": _format_message(msg),
+        "recipient": user.get("displayName"),
+    }, ensure_ascii=False, indent=2)
+
+
 def main():
     _init()
     mcp.run(transport="stdio")

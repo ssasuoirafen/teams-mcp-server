@@ -1,0 +1,106 @@
+import json
+
+import httpx
+import pytest
+
+from teams_mcp.graph import GRAPH_BASE, GraphClient
+
+
+def make_client(token: str | None = "test-token", transport: httpx.MockTransport | None = None) -> GraphClient:
+    client = GraphClient(token_provider=lambda: token)
+    if transport is not None:
+        client._http = httpx.AsyncClient(base_url=GRAPH_BASE, timeout=30.0, transport=transport)
+    return client
+
+
+def mock_transport(responses: dict[tuple[str, str], tuple[int, dict]]) -> httpx.MockTransport:
+    """
+    responses: mapping of (method, path_prefix) -> (status_code, body_dict)
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        for (method, path_prefix), (status, body) in responses.items():
+            if request.method == method and request.url.path.startswith(path_prefix):
+                return httpx.Response(status, json=body, request=request)
+        return httpx.Response(404, json={"error": "not found"}, request=request)
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_list_teams():
+    transport = mock_transport({
+        ("GET", "/v1.0/me/joinedTeams"): (200, {"value": [{"id": "t1", "displayName": "Team Alpha"}]}),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_teams()
+    assert result == [{"id": "t1", "displayName": "Team Alpha"}]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_list_channels():
+    team_id = "team-123"
+    transport = mock_transport({
+        ("GET", f"/v1.0/teams/{team_id}/channels"): (
+            200,
+            {"value": [{"id": "c1", "displayName": "General", "membershipType": "standard"}]},
+        ),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_channels(team_id)
+    assert len(result) == 1
+    assert result[0]["id"] == "c1"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_list_chats():
+    transport = mock_transport({
+        ("GET", "/v1.0/me/chats"): (
+            200,
+            {"value": [{"id": "chat-1", "chatType": "oneOnOne", "topic": None}]},
+        ),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_chats(limit=10)
+    assert result == [{"id": "chat-1", "chatType": "oneOnOne", "topic": None}]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_send_channel_message():
+    team_id = "team-abc"
+    channel_id = "chan-xyz"
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(201, json={"id": "msg-1", "body": {"content": "Hello!"}}, request=request)
+
+    client = make_client(transport=httpx.MockTransport(handler))
+    result = await client.send_channel_message(team_id, channel_id, "Hello!")
+    assert result["id"] == "msg-1"
+
+    assert len(captured) == 1
+    sent = json.loads(captured[0].content)
+    assert sent == {"body": {"content": "Hello!", "contentType": "text"}}
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_no_token_raises():
+    client = make_client(token=None)
+    with pytest.raises(RuntimeError, match="Not authenticated"):
+        await client.list_teams()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_http_error_raises():
+    transport = mock_transport({
+        ("GET", "/v1.0/me/joinedTeams"): (401, {"error": {"code": "Unauthorized"}}),
+    })
+    client = make_client(transport=transport)
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.list_teams()
+    await client.close()

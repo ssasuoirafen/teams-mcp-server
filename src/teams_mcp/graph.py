@@ -47,7 +47,6 @@ class GraphClient:
                 "$top": limit,
                 "$expand": "members($select=displayName,email)",
                 "$select": "id,topic,chatType,lastUpdatedDateTime",
-                "$orderby": "lastUpdatedDateTime desc",
             },
         )
         return data.get("value", [])

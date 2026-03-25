@@ -86,7 +86,7 @@ class GraphClient:
             {"body": {"content": content, "contentType": content_type}},
         )
 
-    async def create_chat(self, user_id: str) -> dict:
+    async def create_chat(self, user_email: str) -> dict:
         return await self._post(
             "/chats",
             {
@@ -95,22 +95,11 @@ class GraphClient:
                     {
                         "@odata.type": "#microsoft.graph.aadUserConversationMember",
                         "roles": ["owner"],
-                        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{user_id}')",
+                        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{user_email}')",
                     },
                 ],
             },
         )
-
-    async def find_user(self, query: str) -> list[dict]:
-        data = await self._get(
-            "/users",
-            params={
-                "$filter": f"startsWith(displayName,'{query}') or startsWith(mail,'{query}')",
-                "$select": "id,displayName,mail",
-                "$top": 5,
-            },
-        )
-        return data.get("value", [])
 
     async def close(self):
         await self._http.aclose()

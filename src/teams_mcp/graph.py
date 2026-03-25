@@ -140,5 +140,33 @@ class GraphClient:
             },
         )
 
+    async def set_reaction_channel(
+        self, team_id: str, channel_id: str, message_id: str, reaction: str,
+    ) -> None:
+        await self._post_no_content(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/setReaction",
+            {"reactionType": reaction},
+        )
+
+    async def set_reaction_chat(self, chat_id: str, message_id: str, reaction: str) -> None:
+        await self._post_no_content(
+            f"/chats/{chat_id}/messages/{message_id}/setReaction",
+            {"reactionType": reaction},
+        )
+
+    async def unset_reaction_channel(
+        self, team_id: str, channel_id: str, message_id: str, reaction: str,
+    ) -> None:
+        await self._post_no_content(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/unsetReaction",
+            {"reactionType": reaction},
+        )
+
+    async def unset_reaction_chat(self, chat_id: str, message_id: str, reaction: str) -> None:
+        await self._post_no_content(
+            f"/chats/{chat_id}/messages/{message_id}/unsetReaction",
+            {"reactionType": reaction},
+        )
+
     async def close(self):
         await self._http.aclose()

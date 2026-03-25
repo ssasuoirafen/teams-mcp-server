@@ -134,3 +134,42 @@ async def test_delete():
     client = make_client(transport=httpx.MockTransport(handler))
     await client._delete("/test/resource/123")
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_set_reaction_channel():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.set_reaction_channel("team-1", "chan-1", "msg-1", "like")
+    assert len(captured) == 1
+    assert "/messages/msg-1/setReaction" in captured[0].url.path
+    body = json.loads(captured[0].content)
+    assert body == {"reactionType": "like"}
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_set_reaction_chat():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.set_reaction_chat("chat-1", "msg-1", "heart")
+    assert "/chats/chat-1/messages/msg-1/setReaction" in captured[0].url.path
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_unset_reaction_channel():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.unset_reaction_channel("team-1", "chan-1", "msg-1", "like")
+    assert "/unsetReaction" in captured[0].url.path
+    await client.close()

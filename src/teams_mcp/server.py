@@ -315,6 +315,56 @@ async def create_chat(user_email: str, message: str) -> str:
     }, ensure_ascii=False, indent=2)
 
 
+@mcp.tool()
+async def set_reaction(
+    message_id: str,
+    reaction: str,
+    chat_id: str | None = None,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+) -> str:
+    """React to a message with an emoji.
+
+    For channel messages: provide team_id + channel_id + message_id.
+    For chat messages: provide chat_id + message_id.
+    Common reactions: like, angry, sad, laugh, heart, surprised.
+    Custom reactions: any unicode emoji.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    if chat_id:
+        await client.set_reaction_chat(chat_id, message_id, reaction)
+    elif team_id and channel_id:
+        await client.set_reaction_channel(team_id, channel_id, message_id, reaction)
+    else:
+        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+    return json.dumps({"status": "ok", "reaction": reaction})
+
+
+@mcp.tool()
+async def unset_reaction(
+    message_id: str,
+    reaction: str,
+    chat_id: str | None = None,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+) -> str:
+    """Remove a reaction from a message.
+
+    For channel messages: provide team_id + channel_id + message_id.
+    For chat messages: provide chat_id + message_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    if chat_id:
+        await client.unset_reaction_chat(chat_id, message_id, reaction)
+    elif team_id and channel_id:
+        await client.unset_reaction_channel(team_id, channel_id, message_id, reaction)
+    else:
+        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+    return json.dumps({"status": "ok", "reaction_removed": reaction})
+
+
 def main():
     _init()
     mcp.run(transport="stdio")

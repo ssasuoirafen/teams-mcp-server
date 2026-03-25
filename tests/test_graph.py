@@ -83,7 +83,7 @@ async def test_send_channel_message():
 
     assert len(captured) == 1
     sent = json.loads(captured[0].content)
-    assert sent == {"body": {"content": "Hello!", "contentType": "text"}}
+    assert sent == {"body": {"content": "Hello!", "contentType": "html"}}
     await client.close()
 
 
@@ -103,4 +103,34 @@ async def test_http_error_raises():
     client = make_client(transport=transport)
     with pytest.raises(httpx.HTTPStatusError):
         await client.list_teams()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_post_no_content():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204, request=request)
+
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client._post_no_content("/test/action", {"key": "value"})
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_patch():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204, request=request)
+
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client._patch("/test/resource", {"body": {"content": "updated"}})
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_delete():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204, request=request)
+
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client._delete("/test/resource/123")
     await client.close()

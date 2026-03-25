@@ -7,12 +7,17 @@ import msal
 class AuthManager:
     DEFAULT_SCOPES = [
         "User.Read",
+        "User.ReadBasic.All",
         "Team.ReadBasic.All",
+        "TeamMember.Read.All",
         "Channel.ReadBasic.All",
+        "ChannelMember.Read.All",
         "ChannelMessage.Read.All",
         "ChannelMessage.Send",
+        "ChannelMessage.ReadWrite",
         "Chat.Read",
         "Chat.ReadWrite",
+        "Presence.Read.All",
     ]
 
     def __init__(

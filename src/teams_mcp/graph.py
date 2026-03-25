@@ -3,6 +3,7 @@ from typing import Any, Callable
 import httpx
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+GRAPH_BETA = "https://graph.microsoft.com/beta"
 
 
 class GraphClient:
@@ -28,6 +29,18 @@ class GraphClient:
         resp = await self._http.post(path, headers=self._headers(), json=json_body)
         resp.raise_for_status()
         return resp.json()
+
+    async def _post_no_content(self, path: str, json_body: dict | None = None) -> None:
+        resp = await self._http.post(path, headers=self._headers(), json=json_body)
+        resp.raise_for_status()
+
+    async def _patch(self, path: str, json_body: dict) -> None:
+        resp = await self._http.patch(path, headers=self._headers(), json=json_body)
+        resp.raise_for_status()
+
+    async def _delete(self, path: str) -> None:
+        resp = await self._http.delete(path, headers=self._headers())
+        resp.raise_for_status()
 
     async def list_teams(self) -> list[dict]:
         data = await self._get("/me/joinedTeams", params={"$select": "id,displayName,description"})

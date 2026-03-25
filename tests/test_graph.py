@@ -136,6 +136,53 @@ async def test_delete():
     await client.close()
 
 
+MEMBER_RESPONSE = {
+    "value": [
+        {
+            "@odata.type": "#microsoft.graph.aadUserConversationMember",
+            "id": "mem-1",
+            "displayName": "Alice Smith",
+            "email": "alice@example.com",
+            "roles": ["owner"],
+        }
+    ]
+}
+
+
+@pytest.mark.asyncio
+async def test_list_team_members():
+    transport = mock_transport({
+        ("GET", "/v1.0/teams/team-1/members"): (200, MEMBER_RESPONSE),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_team_members("team-1")
+    assert len(result) == 1
+    assert result[0]["displayName"] == "Alice Smith"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_list_channel_members():
+    transport = mock_transport({
+        ("GET", "/v1.0/teams/team-1/channels/chan-1/members"): (200, MEMBER_RESPONSE),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_channel_members("team-1", "chan-1")
+    assert len(result) == 1
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_list_chat_members():
+    transport = mock_transport({
+        ("GET", "/v1.0/chats/chat-1/members"): (200, MEMBER_RESPONSE),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_chat_members("chat-1")
+    assert len(result) == 1
+    await client.close()
+
+
 @pytest.mark.asyncio
 async def test_soft_delete_channel_message():
     captured: list[httpx.Request] = []

@@ -44,6 +44,15 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "")
 
 
+def _format_member(member: dict) -> dict:
+    return {
+        "id": member.get("userId") or member.get("id"),
+        "displayName": member.get("displayName"),
+        "email": member.get("email"),
+        "roles": member.get("roles", []),
+    }
+
+
 def _format_message(msg: dict) -> dict:
     return {
         "id": msg.get("id"),
@@ -313,6 +322,45 @@ async def create_chat(user_email: str, message: str) -> str:
         "chat_id": chat_id,
         "message": _format_message(msg),
     }, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def list_team_members(team_id: str) -> str:
+    """List members of a Microsoft Teams team.
+
+    Returns member id, display name, email, and roles (owner/member).
+    Use list_teams to get the team_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    members = await client.list_team_members(team_id)
+    return json.dumps([_format_member(m) for m in members], ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def list_channel_members(team_id: str, channel_id: str) -> str:
+    """List members of a specific channel.
+
+    Returns member id, display name, email, and roles.
+    Use list_channels to get the channel_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    members = await client.list_channel_members(team_id, channel_id)
+    return json.dumps([_format_member(m) for m in members], ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def list_chat_members(chat_id: str) -> str:
+    """List members of a chat.
+
+    Returns member id, display name, email, and roles.
+    Use list_chats to get the chat_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    members = await client.list_chat_members(chat_id)
+    return json.dumps([_format_member(m) for m in members], ensure_ascii=False, indent=2)
 
 
 @mcp.tool()

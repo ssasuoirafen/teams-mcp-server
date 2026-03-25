@@ -140,6 +140,18 @@ class GraphClient:
             },
         )
 
+    async def list_team_members(self, team_id: str) -> list[dict]:
+        data = await self._get(f"/teams/{team_id}/members")
+        return data.get("value", [])
+
+    async def list_channel_members(self, team_id: str, channel_id: str) -> list[dict]:
+        data = await self._get(f"/teams/{team_id}/channels/{channel_id}/members")
+        return data.get("value", [])
+
+    async def list_chat_members(self, chat_id: str) -> list[dict]:
+        data = await self._get(f"/chats/{chat_id}/members")
+        return data.get("value", [])
+
     async def soft_delete_channel_message(
         self, team_id: str, channel_id: str, message_id: str,
     ) -> None:

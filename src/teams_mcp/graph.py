@@ -64,26 +64,28 @@ class GraphClient:
         )
         return data.get("value", [])
 
-    async def send_channel_message(
-        self, team_id: str, channel_id: str, content: str, content_type: str = "text"
-    ) -> dict:
+    @staticmethod
+    def _to_html(text: str) -> str:
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+
+    async def send_channel_message(self, team_id: str, channel_id: str, content: str) -> dict:
         return await self._post(
             f"/teams/{team_id}/channels/{channel_id}/messages",
-            {"body": {"content": content, "contentType": content_type}},
+            {"body": {"content": self._to_html(content), "contentType": "html"}},
         )
 
-    async def send_chat_message(self, chat_id: str, content: str, content_type: str = "text") -> dict:
+    async def send_chat_message(self, chat_id: str, content: str) -> dict:
         return await self._post(
             f"/chats/{chat_id}/messages",
-            {"body": {"content": content, "contentType": content_type}},
+            {"body": {"content": self._to_html(content), "contentType": "html"}},
         )
 
     async def reply_to_channel_message(
-        self, team_id: str, channel_id: str, message_id: str, content: str, content_type: str = "text"
+        self, team_id: str, channel_id: str, message_id: str, content: str
     ) -> dict:
         return await self._post(
             f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
-            {"body": {"content": content, "contentType": content_type}},
+            {"body": {"content": self._to_html(content), "contentType": "html"}},
         )
 
     async def get_me(self) -> dict:

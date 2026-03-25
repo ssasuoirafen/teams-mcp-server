@@ -86,12 +86,20 @@ class GraphClient:
             {"body": {"content": content, "contentType": content_type}},
         )
 
-    async def create_chat(self, user_email: str) -> dict:
+    async def get_me(self) -> dict:
+        return await self._get("/me", params={"$select": "id"})
+
+    async def create_chat(self, my_id: str, user_email: str) -> dict:
         return await self._post(
             "/chats",
             {
                 "chatType": "oneOnOne",
                 "members": [
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{my_id}')",
+                    },
                     {
                         "@odata.type": "#microsoft.graph.aadUserConversationMember",
                         "roles": ["owner"],

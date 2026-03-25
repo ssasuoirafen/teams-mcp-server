@@ -282,7 +282,8 @@ async def create_chat(user_email: str, message: str) -> str:
     Requires the user's email address (e.g. amaksudov@avo.uz)."""
     _init_if_needed()
     client = _require_auth()
-    chat = await client.create_chat(user_email)
+    me = await client.get_me()
+    chat = await client.create_chat(me["id"], user_email)
     chat_id = chat["id"]
     msg = await client.send_chat_message(chat_id, message)
     return json.dumps({

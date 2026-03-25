@@ -264,5 +264,19 @@ class GraphClient:
             },
         )
 
+    async def get_user_presence(self, user_id: str) -> dict:
+        return await self._get(f"/users/{user_id}/presence")
+
+    async def search_users(self, query: str, limit: int = 10) -> list[dict]:
+        data = await self._get(
+            "/users",
+            params={
+                "$filter": f"startsWith(displayName,'{query}') or startsWith(mail,'{query}')",
+                "$select": "id,displayName,mail,userPrincipalName,jobTitle",
+                "$top": limit,
+            },
+        )
+        return data.get("value", [])
+
     async def close(self):
         await self._http.aclose()

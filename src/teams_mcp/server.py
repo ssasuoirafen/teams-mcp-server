@@ -557,6 +557,46 @@ async def mark_chat_unread(chat_id: str, last_message_read_date_time: str) -> st
     return json.dumps({"status": "ok", "chat_id": chat_id, "marked": "unread"})
 
 
+@mcp.tool()
+async def get_user_presence(user_id: str) -> str:
+    """Get the presence/availability status of a user.
+
+    Returns availability (Available, Busy, DoNotDisturb, Away, Offline, etc.)
+    and activity (InACall, InAMeeting, Presenting, etc.).
+    Get the user_id from list_team_members, list_chat_members, or get_user.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    presence = await client.get_user_presence(user_id)
+    return json.dumps({
+        "availability": presence.get("availability"),
+        "activity": presence.get("activity"),
+        "statusMessage": (presence.get("statusMessage") or {}).get("message", {}).get("content"),
+    }, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def get_user(query: str, limit: int = 10) -> str:
+    """Search for users by name or email.
+
+    Returns user id, display name, email, and job title.
+    Useful for finding user_id needed by other tools (e.g. get_user_presence, create_chat).
+    """
+    _init_if_needed()
+    client = _require_auth()
+    users = await client.search_users(query, limit=limit)
+    result = [
+        {
+            "id": u.get("id"),
+            "displayName": u.get("displayName"),
+            "email": u.get("mail") or u.get("userPrincipalName"),
+            "jobTitle": u.get("jobTitle"),
+        }
+        for u in users
+    ]
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
 def main():
     _init()
     mcp.run(transport="stdio")

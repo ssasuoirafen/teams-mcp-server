@@ -359,3 +359,36 @@ async def test_mark_chat_unread():
     body = json.loads(captured[0].content)
     assert body["lastMessageReadDateTime"] == "2026-03-26T10:00:00Z"
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_user_presence():
+    transport = mock_transport({
+        ("GET", "/v1.0/users/user-1/presence"): (
+            200,
+            {"availability": "Available", "activity": "Available"},
+        ),
+    })
+    client = make_client(transport=transport)
+    result = await client.get_user_presence("user-1")
+    assert result["availability"] == "Available"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_search_users():
+    transport = mock_transport({
+        ("GET", "/v1.0/users"): (
+            200,
+            {
+                "value": [
+                    {"id": "u1", "displayName": "Alice", "mail": "alice@example.com", "userPrincipalName": "alice@example.com"}
+                ]
+            },
+        ),
+    })
+    client = make_client(transport=transport)
+    result = await client.search_users("Alice")
+    assert len(result) == 1
+    assert result[0]["displayName"] == "Alice"
+    await client.close()

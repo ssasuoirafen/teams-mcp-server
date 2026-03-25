@@ -11,9 +11,16 @@ from teams_mcp.graph import GraphClient
 mcp = FastMCP(
     "teams-mcp",
     instructions=(
-        "Microsoft Teams MCP server. Call login first to authenticate. "
-        "For channels: list_teams -> list_channels -> list_channel_messages or send_channel_message. "
-        "For chats: list_chats -> list_chat_messages or send_chat_message."
+        "Microsoft Teams MCP server. Call login first to authenticate.\n"
+        "Channels: list_teams -> list_channels -> list_channel_messages/send_channel_message.\n"
+        "Chats: list_chats -> list_chat_messages/send_chat_message.\n"
+        "Members: list_team_members, list_channel_members, list_chat_members.\n"
+        "Search: search_messages for full-text search across all chats/channels.\n"
+        "Users: get_user to find users, get_user_presence for online status.\n"
+        "Reactions: set_reaction/unset_reaction. Pins: pin_message/unpin_message.\n"
+        "Message ops: update_message, delete_message.\n"
+        "Chat management: create_chat, create_group_chat, mark_chat_read/mark_chat_unread.\n"
+        "Send tools support @mentions via the mentions parameter."
     ),
 )
 

@@ -576,6 +576,33 @@ async def get_user_presence(user_id: str) -> str:
 
 
 @mcp.tool()
+async def search_messages(query: str, size: int = 25) -> str:
+    """Search for messages across all chats and channels.
+
+    Full-text search on message body and attachments.
+    Returns matching messages ranked by relevance with sender and context.
+    Uses beta API - results may vary.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    hits = await client.search_messages(query, size=size)
+    result = []
+    for hit in hits:
+        resource = hit.get("resource", {})
+        sender = resource.get("from", {}).get("emailAddress", {})
+        result.append({
+            "summary": hit.get("summary"),
+            "sender": sender.get("name"),
+            "senderEmail": sender.get("address"),
+            "createdDateTime": resource.get("createdDateTime"),
+            "chatId": resource.get("chatId"),
+            "channelIdentity": resource.get("channelIdentity"),
+            "webLink": resource.get("webLink"),
+        })
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
 async def get_user(query: str, limit: int = 10) -> str:
     """Search for users by name or email.
 

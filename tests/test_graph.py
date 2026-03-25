@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from teams_mcp.graph import GRAPH_BASE, GraphClient
+from teams_mcp.graph import GRAPH_BASE, GRAPH_BETA, GraphClient
 
 
 def make_client(token: str | None = "test-token", transport: httpx.MockTransport | None = None) -> GraphClient:
@@ -391,4 +391,47 @@ async def test_search_users():
     result = await client.search_users("Alice")
     assert len(result) == 1
     assert result[0]["displayName"] == "Alice"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_search_messages():
+    captured: list[httpx.Request] = []
+    response_body = {
+        "value": [
+            {
+                "searchTerms": ["test"],
+                "hitsContainers": [
+                    {
+                        "hits": [
+                            {
+                                "hitId": "hit-1",
+                                "summary": "...test...",
+                                "resource": {
+                                    "summary": "test message content",
+                                    "from": {"emailAddress": {"name": "Alice", "address": "alice@example.com"}},
+                                    "createdDateTime": "2026-03-26T10:00:00Z",
+                                    "chatId": "chat-1",
+                                },
+                            }
+                        ],
+                        "total": 1,
+                    }
+                ],
+            }
+        ],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=response_body, request=request)
+
+    client = make_client(transport=httpx.MockTransport(handler))
+    result = await client.search_messages("test", size=5)
+    assert len(result) == 1
+    assert result[0]["hitId"] == "hit-1"
+    body = json.loads(captured[0].content)
+    assert body["requests"][0]["entityTypes"] == ["chatMessage"]
+    assert body["requests"][0]["query"]["queryString"] == "test"
+    assert str(captured[0].url) == f"{GRAPH_BETA}/search/query"
     await client.close()

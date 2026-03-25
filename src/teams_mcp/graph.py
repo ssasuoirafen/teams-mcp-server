@@ -267,6 +267,28 @@ class GraphClient:
     async def get_user_presence(self, user_id: str) -> dict:
         return await self._get(f"/users/{user_id}/presence")
 
+    async def search_messages(self, query: str, size: int = 25) -> list[dict]:
+        resp = await self._http.post(
+            f"{GRAPH_BETA}/search/query",
+            headers=self._headers(),
+            json={
+                "requests": [
+                    {
+                        "entityTypes": ["chatMessage"],
+                        "query": {"queryString": query},
+                        "from": 0,
+                        "size": size,
+                    }
+                ],
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        containers = data.get("value", [{}])[0].get("hitsContainers", [{}])
+        if not containers:
+            return []
+        return containers[0].get("hits", [])
+
     async def search_users(self, query: str, limit: int = 10) -> list[dict]:
         data = await self._get(
             "/users",

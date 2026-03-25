@@ -206,5 +206,46 @@ class GraphClient:
             {"reactionType": reaction},
         )
 
+    async def create_group_chat(
+        self, my_id: str, member_emails: list[str], topic: str | None = None,
+    ) -> dict:
+        members = [
+            {
+                "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                "roles": ["owner"],
+                "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{my_id}')",
+            }
+        ]
+        for email in member_emails:
+            members.append({
+                "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                "roles": ["owner"],
+                "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{email}')",
+            })
+        body: dict[str, Any] = {"chatType": "group", "members": members}
+        if topic:
+            body["topic"] = topic
+        return await self._post("/chats", body)
+
+    async def pin_message(self, chat_id: str, message_id: str) -> dict:
+        return await self._post(
+            f"/chats/{chat_id}/pinnedMessages",
+            {
+                "message@odata.bind": (
+                    f"https://graph.microsoft.com/v1.0/chats/{chat_id}/messages/{message_id}"
+                ),
+            },
+        )
+
+    async def unpin_message(self, chat_id: str, pinned_message_id: str) -> None:
+        await self._delete(f"/chats/{chat_id}/pinnedMessages/{pinned_message_id}")
+
+    async def list_pinned_messages(self, chat_id: str) -> list[dict]:
+        data = await self._get(
+            f"/chats/{chat_id}/pinnedMessages",
+            params={"$expand": "message"},
+        )
+        return data.get("value", [])
+
     async def close(self):
         await self._http.aclose()

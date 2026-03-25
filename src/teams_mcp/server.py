@@ -462,6 +462,73 @@ async def unset_reaction(
     return json.dumps({"status": "ok", "reaction_removed": reaction})
 
 
+@mcp.tool()
+async def create_group_chat(member_emails: str, topic: str | None = None, message: str | None = None) -> str:
+    """Create a new group chat with multiple users.
+
+    member_emails: comma-separated email addresses (e.g. "a@org.com, b@org.com").
+    topic: optional chat topic/name.
+    message: optional first message to send.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    me = await client.get_me()
+    emails = [e.strip() for e in member_emails.split(",") if e.strip()]
+    if len(emails) < 2:
+        return json.dumps({"error": "Group chat requires at least 2 other members"})
+    chat = await client.create_group_chat(me["id"], emails, topic=topic)
+    chat_id = chat["id"]
+    result: dict = {"status": "created", "chat_id": chat_id, "topic": topic}
+    if message:
+        msg = await client.send_chat_message(chat_id, message)
+        result["message"] = _format_message(msg)
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def pin_message(chat_id: str, message_id: str) -> str:
+    """Pin a message in a chat.
+
+    Only works in chats, not channels. Use list_chat_messages to get the message_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    result = await client.pin_message(chat_id, message_id)
+    return json.dumps({"status": "ok", "pinned_message_info_id": result.get("id")}, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def unpin_message(chat_id: str, pinned_message_info_id: str) -> str:
+    """Unpin a message from a chat.
+
+    Use list_pinned_messages to get the pinned_message_info_id (NOT the message_id).
+    """
+    _init_if_needed()
+    client = _require_auth()
+    await client.unpin_message(chat_id, pinned_message_info_id)
+    return json.dumps({"status": "ok", "unpinned": pinned_message_info_id})
+
+
+@mcp.tool()
+async def list_pinned_messages(chat_id: str) -> str:
+    """List pinned messages in a chat.
+
+    Returns pinned message info including the message content.
+    Use list_chats to get the chat_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    pinned = await client.list_pinned_messages(chat_id)
+    result = []
+    for p in pinned:
+        msg = p.get("message", {})
+        result.append({
+            "pinned_message_info_id": p.get("id"),
+            "message": _format_message(msg) if msg else None,
+        })
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
 def main():
     _init()
     mcp.run(transport="stdio")

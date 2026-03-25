@@ -271,3 +271,65 @@ async def test_unset_reaction_channel():
     await client.unset_reaction_channel("team-1", "chan-1", "msg-1", "like")
     assert "/unsetReaction" in captured[0].url.path
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_create_group_chat():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(201, json={"id": "chat-new", "chatType": "group"}, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    result = await client.create_group_chat(
+        my_id="me-id",
+        member_emails=["a@example.com", "b@example.com"],
+        topic="Project X",
+    )
+    assert result["chatType"] == "group"
+    body = json.loads(captured[0].content)
+    assert body["chatType"] == "group"
+    assert body["topic"] == "Project X"
+    assert len(body["members"]) == 3
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_pin_message():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(201, json={"id": "pin-1"}, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    result = await client.pin_message("chat-1", "msg-1")
+    body = json.loads(captured[0].content)
+    assert "message@odata.bind" in body
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_unpin_message():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.unpin_message("chat-1", "pin-1")
+    assert captured[0].method == "DELETE"
+    assert "/pinnedMessages/pin-1" in captured[0].url.path
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_list_pinned_messages():
+    transport = mock_transport({
+        ("GET", "/v1.0/chats/chat-1/pinnedMessages"): (
+            200,
+            {"value": [{"id": "pin-1", "message": {"id": "msg-1", "body": {"content": "Important"}}}]},
+        ),
+    })
+    client = make_client(transport=transport)
+    result = await client.list_pinned_messages("chat-1")
+    assert len(result) == 1
+    await client.close()
+
+

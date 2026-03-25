@@ -53,16 +53,20 @@ def _format_message(msg: dict) -> dict:
     }
 
 
+# Global to hold pending device flow between login and complete_login calls
+_pending_flow: dict | None = None
+
+
 # Tool: login
 # Annotations: openWorldHint=True
 @mcp.tool()
 def login() -> str:
-    """Authenticate with Microsoft Teams via device code flow.
+    """Start authentication with Microsoft Teams via device code flow.
 
-    If already authenticated, returns the current account info.
-    Otherwise, initiates device code flow - follow the printed instructions
-    to complete authentication in your browser.
-    """
+    If already authenticated, returns current account info.
+    Otherwise, returns a device code and URL. The user must open the URL in a browser
+    and enter the code. Then call complete_login to finish authentication."""
+    global _pending_flow
     _init_if_needed()
     accounts = auth._app.get_accounts()
     if accounts:
@@ -71,8 +75,34 @@ def login() -> str:
             ensure_ascii=False,
             indent=2,
         )
-    flow = auth.login()
-    print(flow["message"], file=sys.stderr)
+    _pending_flow = auth.login()
+    return json.dumps(
+        {
+            "status": "action_required",
+            "message": _pending_flow.get("message", ""),
+            "user_code": _pending_flow.get("user_code", ""),
+            "verification_uri": _pending_flow.get("verification_uri", ""),
+            "instructions": "Open the URL, enter the code, then call complete_login.",
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+# Tool: complete_login
+# Annotations: openWorldHint=True
+@mcp.tool()
+def complete_login() -> str:
+    """Complete the device code authentication after the user has entered the code in the browser.
+
+    Call this AFTER the user has opened the URL from login and entered the device code.
+    Blocks until authentication completes (up to 15 minutes)."""
+    global _pending_flow
+    _init_if_needed()
+    if _pending_flow is None:
+        return json.dumps({"status": "error", "message": "No pending login. Call login first."})
+    flow = _pending_flow
+    _pending_flow = None
     result = auth.complete_login(flow)
     return json.dumps(result, ensure_ascii=False, indent=2)
 

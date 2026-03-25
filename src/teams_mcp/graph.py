@@ -140,6 +140,32 @@ class GraphClient:
             },
         )
 
+    async def soft_delete_channel_message(
+        self, team_id: str, channel_id: str, message_id: str,
+    ) -> None:
+        await self._post_no_content(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/softDelete",
+        )
+
+    async def soft_delete_chat_message(self, chat_id: str, message_id: str) -> None:
+        await self._post_no_content(
+            f"/chats/{chat_id}/messages/{message_id}/softDelete",
+        )
+
+    async def update_channel_message(
+        self, team_id: str, channel_id: str, message_id: str, content: str,
+    ) -> None:
+        await self._patch(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}",
+            {"body": {"content": self._to_html(content), "contentType": "html"}},
+        )
+
+    async def update_chat_message(self, chat_id: str, message_id: str, content: str) -> None:
+        await self._patch(
+            f"/chats/{chat_id}/messages/{message_id}",
+            {"body": {"content": self._to_html(content), "contentType": "html"}},
+        )
+
     async def set_reaction_channel(
         self, team_id: str, channel_id: str, message_id: str, reaction: str,
     ) -> None:

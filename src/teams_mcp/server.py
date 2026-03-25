@@ -316,6 +316,55 @@ async def create_chat(user_email: str, message: str) -> str:
 
 
 @mcp.tool()
+async def delete_message(
+    message_id: str,
+    chat_id: str | None = None,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+) -> str:
+    """Soft-delete a message you sent.
+
+    For channel messages: provide team_id + channel_id + message_id.
+    For chat messages: provide chat_id + message_id.
+    The message can be recovered by an admin within 7 days.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    if chat_id:
+        await client.soft_delete_chat_message(chat_id, message_id)
+    elif team_id and channel_id:
+        await client.soft_delete_channel_message(team_id, channel_id, message_id)
+    else:
+        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+    return json.dumps({"status": "ok", "deleted": message_id})
+
+
+@mcp.tool()
+async def update_message(
+    message_id: str,
+    content: str,
+    chat_id: str | None = None,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+) -> str:
+    """Edit a message you sent.
+
+    For channel messages: provide team_id + channel_id + message_id.
+    For chat messages: provide chat_id + message_id.
+    Only available in Global cloud (not GCC/DOD).
+    """
+    _init_if_needed()
+    client = _require_auth()
+    if chat_id:
+        await client.update_chat_message(chat_id, message_id, content)
+    elif team_id and channel_id:
+        await client.update_channel_message(team_id, channel_id, message_id, content)
+    else:
+        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+    return json.dumps({"status": "ok", "updated": message_id})
+
+
+@mcp.tool()
 async def set_reaction(
     message_id: str,
     reaction: str,

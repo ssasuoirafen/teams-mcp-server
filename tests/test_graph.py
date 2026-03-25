@@ -137,6 +137,57 @@ async def test_delete():
 
 
 @pytest.mark.asyncio
+async def test_soft_delete_channel_message():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.soft_delete_channel_message("team-1", "chan-1", "msg-1")
+    assert "/softDelete" in captured[0].url.path
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_chat_message():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.soft_delete_chat_message("chat-1", "msg-1")
+    assert "/chats/chat-1/messages/msg-1/softDelete" in captured[0].url.path
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_channel_message():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.update_channel_message("team-1", "chan-1", "msg-1", "updated text")
+    assert captured[0].method == "PATCH"
+    body = json.loads(captured[0].content)
+    assert body["body"]["contentType"] == "html"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_update_chat_message():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.update_chat_message("chat-1", "msg-1", "new content")
+    assert captured[0].method == "PATCH"
+    assert "/chats/chat-1/messages/msg-1" in captured[0].url.path
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_set_reaction_channel():
     captured: list[httpx.Request] = []
     def handler(request: httpx.Request) -> httpx.Response:

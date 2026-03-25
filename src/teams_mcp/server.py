@@ -166,15 +166,20 @@ async def list_chats(limit: int = 20) -> str:
     _init_if_needed()
     client = _require_auth()
     chats = await client.list_chats(limit=limit)
-    result = [
-        {
+    result = []
+    for c in chats:
+        members = [
+            m.get("displayName", "")
+            for m in (c.get("members") or [])
+            if m.get("displayName")
+        ]
+        result.append({
             "id": c.get("id"),
-            "topic": c.get("topic"),
+            "topic": c.get("topic") or ", ".join(members),
             "chatType": c.get("chatType"),
             "lastUpdatedDateTime": c.get("lastUpdatedDateTime"),
-        }
-        for c in chats
-    ]
+            "members": members,
+        })
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

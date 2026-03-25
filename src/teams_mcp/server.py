@@ -204,6 +204,28 @@ async def list_channel_messages(team_id: str, channel_id: str, limit: int = 20) 
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+# Tool: list_thread_replies
+# Annotations: readOnlyHint=True, openWorldHint=True
+@mcp.tool()
+async def list_thread_replies(
+    team_id: str, channel_id: str, message_id: str, limit: int = 20
+) -> str:
+    """List replies in a channel message thread.
+
+    Use list_channel_messages to get the parent message_id.
+    Returns the parent message followed by all replies in the thread."""
+    _init_if_needed()
+    client = _require_auth()
+    parent = await client.get_channel_message(team_id, channel_id, message_id)
+    replies = await client.list_thread_replies(team_id, channel_id, message_id, limit=limit)
+    result = [_format_message(parent)] + [
+        _format_message(m)
+        for m in replies
+        if m.get("messageType") == "message"
+    ]
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
 # Tool: list_chat_messages
 # Annotations: readOnlyHint=True, openWorldHint=True
 @mcp.tool()

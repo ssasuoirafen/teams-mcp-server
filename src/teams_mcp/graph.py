@@ -57,6 +57,22 @@ class GraphClient:
         )
         return data.get("value", [])
 
+    async def list_thread_replies(
+        self, team_id: str, channel_id: str, message_id: str, limit: int = 20
+    ) -> list[dict]:
+        data = await self._get(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
+            params={"$top": limit},
+        )
+        return data.get("value", [])
+
+    async def get_channel_message(
+        self, team_id: str, channel_id: str, message_id: str
+    ) -> dict:
+        return await self._get(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}",
+        )
+
     async def list_chat_messages(self, chat_id: str, limit: int = 20) -> list[dict]:
         data = await self._get(
             f"/chats/{chat_id}/messages",

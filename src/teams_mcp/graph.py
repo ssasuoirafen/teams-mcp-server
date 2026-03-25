@@ -45,7 +45,6 @@ class GraphClient:
             "/me/chats",
             params={
                 "$top": limit,
-                "$expand": "members($select=displayName,email)",
                 "$select": "id,topic,chatType,lastUpdatedDateTime",
             },
         )

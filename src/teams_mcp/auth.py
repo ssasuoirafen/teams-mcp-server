@@ -11,8 +11,8 @@ class AuthManager:
         "Channel.ReadBasic.All",
         "ChannelMessage.Read.All",
         "ChannelMessage.Send",
+        "Chat.Read",
         "Chat.ReadWrite",
-        "ChatMessage.Read",
     ]
 
     def __init__(

@@ -247,5 +247,22 @@ class GraphClient:
         )
         return data.get("value", [])
 
+    async def mark_chat_read(self, chat_id: str, user_id: str) -> None:
+        await self._post_no_content(
+            f"/chats/{chat_id}/markChatReadForUser",
+            {"user": {"id": user_id, "@odata.type": "microsoft.graph.teamworkUserIdentity"}},
+        )
+
+    async def mark_chat_unread(
+        self, chat_id: str, user_id: str, last_message_read_date_time: str,
+    ) -> None:
+        await self._post_no_content(
+            f"/chats/{chat_id}/markChatUnreadForUser",
+            {
+                "user": {"id": user_id, "@odata.type": "microsoft.graph.teamworkUserIdentity"},
+                "lastMessageReadDateTime": last_message_read_date_time,
+            },
+        )
+
     async def close(self):
         await self._http.aclose()

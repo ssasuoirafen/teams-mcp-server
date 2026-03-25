@@ -333,3 +333,29 @@ async def test_list_pinned_messages():
     await client.close()
 
 
+@pytest.mark.asyncio
+async def test_mark_chat_read():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.mark_chat_read("chat-1", "user-1")
+    assert "/markChatReadForUser" in captured[0].url.path
+    body = json.loads(captured[0].content)
+    assert body["user"]["id"] == "user-1"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_mark_chat_unread():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.mark_chat_unread("chat-1", "user-1", "2026-03-26T10:00:00Z")
+    assert "/markChatUnreadForUser" in captured[0].url.path
+    body = json.loads(captured[0].content)
+    assert body["lastMessageReadDateTime"] == "2026-03-26T10:00:00Z"
+    await client.close()

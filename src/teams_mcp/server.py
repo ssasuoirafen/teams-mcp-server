@@ -529,6 +529,34 @@ async def list_pinned_messages(chat_id: str) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+@mcp.tool()
+async def mark_chat_read(chat_id: str) -> str:
+    """Mark a chat as read for the current user.
+
+    Use list_chats to get the chat_id.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    me = await client.get_me()
+    await client.mark_chat_read(chat_id, me["id"])
+    return json.dumps({"status": "ok", "chat_id": chat_id, "marked": "read"})
+
+
+@mcp.tool()
+async def mark_chat_unread(chat_id: str, last_message_read_date_time: str) -> str:
+    """Mark a chat as unread for the current user.
+
+    last_message_read_date_time: ISO 8601 timestamp of the last message
+    that should be considered as read (e.g. "2026-03-26T10:00:00Z").
+    Messages after this timestamp will appear as unread.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    me = await client.get_me()
+    await client.mark_chat_unread(chat_id, me["id"], last_message_read_date_time)
+    return json.dumps({"status": "ok", "chat_id": chat_id, "marked": "unread"})
+
+
 def main():
     _init()
     mcp.run(transport="stdio")

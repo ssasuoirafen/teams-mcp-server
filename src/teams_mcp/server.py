@@ -259,30 +259,43 @@ async def list_chat_messages(chat_id: str, limit: int = 20) -> str:
 # Tool: send_channel_message
 # Annotations: openWorldHint=True
 @mcp.tool()
-async def send_channel_message(team_id: str, channel_id: str, content: str) -> str:
+async def send_channel_message(
+    team_id: str, channel_id: str, content: str, mentions: str | None = None,
+) -> str:
     """Send a message to a Teams channel.
 
     Use list_teams -> list_channels to get team_id and channel_id.
     For replies to existing messages, use reply_to_channel_message instead.
+
+    mentions: optional JSON array of users to @mention.
+    Format: [{"user_id": "...", "name": "Display Name"}]
+    Use @DisplayName in content where the mention should appear.
+    Get user_id from list_team_members, list_channel_members, or get_user.
     """
     _init_if_needed()
     client = _require_auth()
-    result = await client.send_channel_message(team_id, channel_id, content)
+    parsed_mentions = json.loads(mentions) if mentions else None
+    result = await client.send_channel_message(team_id, channel_id, content, mentions=parsed_mentions)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
 
 # Tool: send_chat_message
 # Annotations: openWorldHint=True
 @mcp.tool()
-async def send_chat_message(chat_id: str, content: str) -> str:
+async def send_chat_message(chat_id: str, content: str, mentions: str | None = None) -> str:
     """Send a message to a Teams chat.
 
     Use list_chats to get the chat_id.
     Chat messages don't support threaded replies - just send a new message.
+
+    mentions: optional JSON array of users to @mention.
+    Format: [{"user_id": "...", "name": "Display Name"}]
+    Use @DisplayName in content where the mention should appear.
     """
     _init_if_needed()
     client = _require_auth()
-    result = await client.send_chat_message(chat_id, content)
+    parsed_mentions = json.loads(mentions) if mentions else None
+    result = await client.send_chat_message(chat_id, content, mentions=parsed_mentions)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
 
@@ -290,16 +303,23 @@ async def send_chat_message(chat_id: str, content: str) -> str:
 # Annotations: openWorldHint=True
 @mcp.tool()
 async def reply_to_channel_message(
-    team_id: str, channel_id: str, message_id: str, content: str
+    team_id: str, channel_id: str, message_id: str, content: str, mentions: str | None = None,
 ) -> str:
     """Reply to a message in a Teams channel thread.
 
     Use list_channel_messages to get the message_id to reply to.
     For new top-level messages, use send_channel_message instead.
+
+    mentions: optional JSON array of users to @mention.
+    Format: [{"user_id": "...", "name": "Display Name"}]
+    Use @DisplayName in content where the mention should appear.
     """
     _init_if_needed()
     client = _require_auth()
-    result = await client.reply_to_channel_message(team_id, channel_id, message_id, content)
+    parsed_mentions = json.loads(mentions) if mentions else None
+    result = await client.reply_to_channel_message(
+        team_id, channel_id, message_id, content, mentions=parsed_mentions,
+    )
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
 

@@ -394,6 +394,55 @@ async def test_search_users():
     await client.close()
 
 
+def test_build_message_body_no_mentions():
+    body = GraphClient._build_message_body("Hello world\nLine 2")
+    assert body == {
+        "body": {"content": "Hello world<br>Line 2", "contentType": "html"},
+    }
+
+
+def test_build_message_body_with_mentions():
+    mentions = [{"user_id": "u1", "name": "Alice Smith"}]
+    body = GraphClient._build_message_body("Hey @Alice Smith, check this", mentions=mentions)
+    assert '<at id="0">Alice Smith</at>' in body["body"]["content"]
+    assert body["body"]["contentType"] == "html"
+    assert len(body["mentions"]) == 1
+    assert body["mentions"][0]["id"] == 0
+    assert body["mentions"][0]["mentioned"]["user"]["id"] == "u1"
+
+
+def test_build_message_body_multiple_mentions():
+    mentions = [
+        {"user_id": "u1", "name": "Alice"},
+        {"user_id": "u2", "name": "Bob"},
+    ]
+    body = GraphClient._build_message_body("@Alice and @Bob please review", mentions=mentions)
+    assert '<at id="0">Alice</at>' in body["body"]["content"]
+    assert '<at id="1">Bob</at>' in body["body"]["content"]
+    assert len(body["mentions"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_send_channel_message_with_mentions():
+    captured: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            201,
+            json={"id": "msg-2", "body": {"content": "Hi <at>Alice</at>!"}},
+            request=request,
+        )
+    client = make_client(transport=httpx.MockTransport(handler))
+    await client.send_channel_message(
+        "team-1", "chan-1", "Hi @Alice!",
+        mentions=[{"user_id": "u1", "name": "Alice"}],
+    )
+    body = json.loads(captured[0].content)
+    assert "mentions" in body
+    assert '<at id="0">Alice</at>' in body["body"]["content"]
+    await client.close()
+
+
 @pytest.mark.asyncio
 async def test_search_messages():
     captured: list[httpx.Request] = []

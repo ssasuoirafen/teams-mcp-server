@@ -97,24 +97,66 @@ class GraphClient:
     def _to_html(text: str) -> str:
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-    async def send_channel_message(self, team_id: str, channel_id: str, content: str) -> dict:
+    @staticmethod
+    def _build_message_body(text: str, mentions: list[dict] | None = None) -> dict:
+        html = (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+        payload: dict[str, Any] = {
+            "body": {"content": html, "contentType": "html"},
+        }
+        if mentions:
+            mention_objects = []
+            for i, m in enumerate(mentions):
+                name = m["name"]
+                escaped = (
+                    name.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                )
+                at_tag = f'<at id="{i}">{escaped}</at>'
+                html = html.replace(f"@{escaped}", at_tag)
+                mention_objects.append({
+                    "id": i,
+                    "mentionText": name,
+                    "mentioned": {
+                        "user": {
+                            "id": m["user_id"],
+                            "displayName": name,
+                            "userIdentityType": "aadUser",
+                        }
+                    },
+                })
+            payload["body"]["content"] = html
+            payload["mentions"] = mention_objects
+        return payload
+
+    async def send_channel_message(
+        self, team_id: str, channel_id: str, content: str, mentions: list[dict] | None = None,
+    ) -> dict:
         return await self._post(
             f"/teams/{team_id}/channels/{channel_id}/messages",
-            {"body": {"content": self._to_html(content), "contentType": "html"}},
+            self._build_message_body(content, mentions),
         )
 
-    async def send_chat_message(self, chat_id: str, content: str) -> dict:
+    async def send_chat_message(
+        self, chat_id: str, content: str, mentions: list[dict] | None = None,
+    ) -> dict:
         return await self._post(
             f"/chats/{chat_id}/messages",
-            {"body": {"content": self._to_html(content), "contentType": "html"}},
+            self._build_message_body(content, mentions),
         )
 
     async def reply_to_channel_message(
-        self, team_id: str, channel_id: str, message_id: str, content: str
+        self, team_id: str, channel_id: str, message_id: str, content: str,
+        mentions: list[dict] | None = None,
     ) -> dict:
         return await self._post(
             f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
-            {"body": {"content": self._to_html(content), "contentType": "html"}},
+            self._build_message_body(content, mentions),
         )
 
     async def get_me(self) -> dict:

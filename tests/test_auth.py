@@ -16,6 +16,7 @@ def auth_manager(tmp_path):
         manager = AuthManager(
             tenant_id="test-tenant",
             client_id="test-client",
+            scopes=["User.Read", "Chat.Read"],
             cache_dir=str(tmp_path),
         )
         return manager
@@ -27,11 +28,12 @@ def test_auth_manager_init(tmp_path):
         manager = AuthManager(
             tenant_id="test-tenant",
             client_id="test-client",
+            scopes=["User.Read", "Chat.ReadWrite"],
             cache_dir=str(tmp_path),
         )
         assert manager.tenant_id == "test-tenant"
         assert manager.client_id == "test-client"
-        assert manager.scopes == AuthManager.DEFAULT_SCOPES
+        assert manager.scopes == ["User.Read", "Chat.ReadWrite"]
         mock_app_cls.assert_called_once_with(
             client_id="test-client",
             authority="https://login.microsoftonline.com/test-tenant",

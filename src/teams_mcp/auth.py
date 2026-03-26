@@ -5,43 +5,16 @@ import msal
 
 
 class AuthManager:
-    DEFAULT_SCOPES = [
-        "User.Read",
-        "User.ReadBasic.All",
-        "Team.ReadBasic.All",
-        "TeamMember.Read.All",
-        "Channel.ReadBasic.All",
-        "ChannelMember.Read.All",
-        "ChannelMessage.Read.All",
-        "ChannelMessage.Send",
-        "ChannelMessage.ReadWrite",
-        "Chat.Read",
-        "Chat.ReadWrite",
-        "Presence.Read.All",
-    ]
-
-    # Scopes that work without admin consent (user can approve at login)
-    USER_CONSENT_SCOPES = [
-        "User.Read",
-        "User.ReadBasic.All",
-        "Team.ReadBasic.All",
-        "Channel.ReadBasic.All",
-        "ChannelMessage.Send",
-        "Chat.Read",
-        "Chat.ReadWrite",
-        "Presence.Read.All",
-    ]
-
     def __init__(
         self,
         tenant_id: str,
         client_id: str,
-        scopes: list[str] | None = None,
+        scopes: list[str],
         cache_dir: str | None = None,
     ):
         self.tenant_id = tenant_id
         self.client_id = client_id
-        self.scopes = scopes or self.DEFAULT_SCOPES
+        self.scopes = scopes
         self._cache_dir = Path(cache_dir or os.path.expanduser("~/.teams-mcp"))
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_path = self._cache_dir / "token_cache.json"

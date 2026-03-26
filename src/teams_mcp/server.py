@@ -86,10 +86,11 @@ def login() -> str:
     and enter the code. Then call complete_login to finish authentication."""
     global _pending_flow
     _init_if_needed()
-    accounts = auth._app.get_accounts()
-    if accounts:
+    if auth.is_authenticated():
+        accounts = auth._app.get_accounts()
+        username = accounts[0].get("username") if accounts else "unknown"
         return json.dumps(
-            {"status": "already_authenticated", "account": accounts[0].get("username")},
+            {"status": "already_authenticated", "account": username},
             ensure_ascii=False,
             indent=2,
         )

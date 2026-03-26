@@ -6,6 +6,13 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 GRAPH_BETA = "https://graph.microsoft.com/beta"
 
 
+class GraphApiError(Exception):
+    def __init__(self, status_code: int, code: str, message: str):
+        self.status_code = status_code
+        self.code = code
+        super().__init__(message)
+
+
 class GraphClient:
     def __init__(self, token_provider: Callable[[], str | None]):
         self._token_provider = token_provider
@@ -20,27 +27,40 @@ class GraphClient:
             raise RuntimeError("Not authenticated. Call the login tool first.")
         return {"Authorization": f"Bearer {token}"}
 
+    @staticmethod
+    def _raise_for_status(resp: httpx.Response) -> None:
+        if resp.is_success:
+            return
+        try:
+            error = resp.json().get("error", {})
+            code = error.get("code", resp.reason_phrase)
+            message = error.get("message", resp.text)
+        except Exception:
+            code = resp.reason_phrase or str(resp.status_code)
+            message = resp.text
+        raise GraphApiError(resp.status_code, code, f"Graph API error {resp.status_code} ({code}): {message}")
+
     async def _get(self, path: str, params: dict | None = None) -> dict[str, Any]:
         resp = await self._http.get(path, headers=self._headers(), params=params)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def _post(self, path: str, json_body: dict) -> dict[str, Any]:
         resp = await self._http.post(path, headers=self._headers(), json=json_body)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     async def _post_no_content(self, path: str, json_body: dict | None = None) -> None:
         resp = await self._http.post(path, headers=self._headers(), json=json_body)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
 
     async def _patch(self, path: str, json_body: dict) -> None:
         resp = await self._http.patch(path, headers=self._headers(), json=json_body)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
 
     async def _delete(self, path: str) -> None:
         resp = await self._http.delete(path, headers=self._headers())
-        resp.raise_for_status()
+        self._raise_for_status(resp)
 
     async def list_teams(self) -> list[dict]:
         data = await self._get("/me/joinedTeams", params={"$select": "id,displayName,description"})
@@ -324,7 +344,7 @@ class GraphClient:
                 ],
             },
         )
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         data = resp.json()
         values = data.get("value") or [{}]
         containers = values[0].get("hitsContainers", [])

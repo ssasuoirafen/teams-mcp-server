@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from teams_mcp.graph import GRAPH_BASE, GRAPH_BETA, GraphClient
+from teams_mcp.graph import GRAPH_BASE, GRAPH_BETA, GraphApiError, GraphClient
 
 
 def make_client(token: str | None = "test-token", transport: httpx.MockTransport | None = None) -> GraphClient:
@@ -101,8 +101,24 @@ async def test_http_error_raises():
         ("GET", "/v1.0/me/joinedTeams"): (401, {"error": {"code": "Unauthorized"}}),
     })
     client = make_client(transport=transport)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(GraphApiError, match="Unauthorized"):
         await client.list_teams()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_forbidden_error_has_message():
+    transport = mock_transport({
+        ("GET", "/v1.0/users/user-1/presence"): (
+            403,
+            {"error": {"code": "Authorization_RequestDenied", "message": "Insufficient privileges to complete the operation."}},
+        ),
+    })
+    client = make_client(transport=transport)
+    with pytest.raises(GraphApiError, match="Insufficient privileges") as exc_info:
+        await client.get_user_presence("user-1")
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.code == "Authorization_RequestDenied"
     await client.close()
 
 

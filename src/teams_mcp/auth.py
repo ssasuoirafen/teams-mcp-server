@@ -20,6 +20,18 @@ class AuthManager:
         "Presence.Read.All",
     ]
 
+    # Scopes that work without admin consent (user can approve at login)
+    USER_CONSENT_SCOPES = [
+        "User.Read",
+        "User.ReadBasic.All",
+        "Team.ReadBasic.All",
+        "Channel.ReadBasic.All",
+        "ChannelMessage.Send",
+        "Chat.Read",
+        "Chat.ReadWrite",
+        "Presence.Read.All",
+    ]
+
     def __init__(
         self,
         tenant_id: str,

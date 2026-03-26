@@ -32,7 +32,9 @@ def _init():
     global auth, graph
     tenant_id = os.environ["TEAMS_MCP_TENANT_ID"]
     client_id = os.environ["TEAMS_MCP_CLIENT_ID"]
-    auth = AuthManager(tenant_id=tenant_id, client_id=client_id)
+    scopes_env = os.environ.get("TEAMS_MCP_SCOPES")
+    scopes = scopes_env.split(",") if scopes_env else None
+    auth = AuthManager(tenant_id=tenant_id, client_id=client_id, scopes=scopes)
     graph = GraphClient(token_provider=auth.get_token)
 
 

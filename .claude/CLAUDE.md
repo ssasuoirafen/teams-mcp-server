@@ -72,6 +72,8 @@ ChannelMessage.Send, ChannelMessage.ReadWrite, Chat.Read, Chat.ReadWrite,
 Presence.Read.All
 ```
 
+Override via `TEAMS_MCP_SCOPES` env var (comma-separated). Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `ChannelMessage.ReadWrite`. If login fails with "Need admin approval", set `TEAMS_MCP_SCOPES` to user-consentable subset (see `.env.example`).
+
 ## Adding a new tool
 
 1. Add graph method in `graph.py` (use existing `_get`/`_post`/`_post_no_content`/`_patch`/`_delete`)

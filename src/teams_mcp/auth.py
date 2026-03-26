@@ -4,17 +4,20 @@ from pathlib import Path
 import msal
 
 
+DEFAULT_SCOPES = ["https://graph.microsoft.com/.default"]
+
+
 class AuthManager:
     def __init__(
         self,
         tenant_id: str,
         client_id: str,
-        scopes: list[str],
+        scopes: list[str] | None = None,
         cache_dir: str | None = None,
     ):
         self.tenant_id = tenant_id
         self.client_id = client_id
-        self.scopes = scopes
+        self.scopes = scopes or DEFAULT_SCOPES
         self._cache_dir = Path(cache_dir or os.path.expanduser("~/.teams-mcp"))
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_path = self._cache_dir / "token_cache.json"

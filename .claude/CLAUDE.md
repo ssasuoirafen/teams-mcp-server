@@ -22,7 +22,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
                           auth.py (MSAL device code flow, token cache)
 ```
 
-- `src/teams_mcp/auth.py` - AuthManager: device code flow, token cache at `~/.teams-mcp/token_cache.json`, scopes passed in constructor (no defaults)
+- `src/teams_mcp/auth.py` - AuthManager: device code flow, token cache at `~/.teams-mcp/token_cache.json`. Default scope: `https://graph.microsoft.com/.default` (auto-detects app registration permissions)
 - `src/teams_mcp/graph.py` - GraphClient: async httpx wrapper with `_get`, `_post`, `_post_no_content`, `_patch`, `_delete` helpers. All raise `GraphApiError` on failure (parses Graph API JSON error body). `GRAPH_BASE` (v1.0) and `GRAPH_BETA` constants.
 - `src/teams_mcp/server.py` - 28 MCP tools. Global `auth`/`graph` initialized lazily. `_require_auth()` guard on every tool.
 - `tests/test_graph.py` - Graph client tests with `mock_transport` / `make_client` helpers. Pattern: mock httpx transport -> call graph method -> assert URL/body/response.
@@ -63,7 +63,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 
 ## Scopes (delegated)
 
-No default scopes - `TEAMS_MCP_SCOPES` env var is required (comma-separated). User controls exactly which permissions are requested. Tools that need a missing scope return 403 with Graph API's error message.
+Default: `https://graph.microsoft.com/.default` - auto-detects all permissions configured and consented on the app registration. Override via `TEAMS_MCP_SCOPES` env var (comma-separated) to restrict. Tools that need a missing scope return 403 with Graph API's error message.
 
 ```
 User.Read, User.ReadBasic.All, Team.ReadBasic.All, TeamMember.Read.All,
@@ -72,7 +72,7 @@ ChannelMessage.Send, ChannelMessage.ReadWrite, Chat.Read, Chat.ReadWrite,
 Presence.Read.All
 ```
 
-Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `ChannelMessage.ReadWrite`. See `.env.example` for minimal (no admin) vs full scope sets.
+Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `ChannelMessage.ReadWrite`.
 
 ## Adding a new tool
 

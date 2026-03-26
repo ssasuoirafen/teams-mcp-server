@@ -32,15 +32,8 @@ def _init():
     global auth, graph
     tenant_id = os.environ["TEAMS_MCP_TENANT_ID"]
     client_id = os.environ["TEAMS_MCP_CLIENT_ID"]
-    scopes_raw = os.environ.get("TEAMS_MCP_SCOPES", "")
-    scopes = [s.strip() for s in scopes_raw.split(",") if s.strip()]
-    if not scopes:
-        raise RuntimeError(
-            "TEAMS_MCP_SCOPES is not set. "
-            "Set it to a comma-separated list of Microsoft Graph scopes "
-            "(e.g. User.Read,Chat.ReadWrite,Team.ReadBasic.All). "
-            "See .env.example for the full list."
-        )
+    scopes_env = os.environ.get("TEAMS_MCP_SCOPES")
+    scopes = [s.strip() for s in scopes_env.split(",") if s.strip()] if scopes_env else None
     auth = AuthManager(tenant_id=tenant_id, client_id=client_id, scopes=scopes)
     graph = GraphClient(token_provider=auth.get_token)
 

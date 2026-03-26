@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from teams_mcp.auth import AuthManager
+from teams_mcp.auth import DEFAULT_SCOPES, AuthManager
 
 
 @pytest.fixture
@@ -16,7 +16,6 @@ def auth_manager(tmp_path):
         manager = AuthManager(
             tenant_id="test-tenant",
             client_id="test-client",
-            scopes=["User.Read", "Chat.Read"],
             cache_dir=str(tmp_path),
         )
         return manager
@@ -28,12 +27,11 @@ def test_auth_manager_init(tmp_path):
         manager = AuthManager(
             tenant_id="test-tenant",
             client_id="test-client",
-            scopes=["User.Read", "Chat.ReadWrite"],
             cache_dir=str(tmp_path),
         )
         assert manager.tenant_id == "test-tenant"
         assert manager.client_id == "test-client"
-        assert manager.scopes == ["User.Read", "Chat.ReadWrite"]
+        assert manager.scopes == DEFAULT_SCOPES
         mock_app_cls.assert_called_once_with(
             client_id="test-client",
             authority="https://login.microsoftonline.com/test-tenant",

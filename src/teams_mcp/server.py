@@ -281,7 +281,12 @@ async def send_channel_message(
     """
     _init_if_needed()
     client = _require_auth()
-    parsed_mentions = json.loads(mentions) if mentions else None
+    parsed_mentions = None
+    if mentions:
+        try:
+            parsed_mentions = json.loads(mentions)
+        except (json.JSONDecodeError, TypeError):
+            return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
     result = await client.send_channel_message(team_id, channel_id, content, mentions=parsed_mentions)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
@@ -301,7 +306,12 @@ async def send_chat_message(chat_id: str, content: str, mentions: str | None = N
     """
     _init_if_needed()
     client = _require_auth()
-    parsed_mentions = json.loads(mentions) if mentions else None
+    parsed_mentions = None
+    if mentions:
+        try:
+            parsed_mentions = json.loads(mentions)
+        except (json.JSONDecodeError, TypeError):
+            return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
     result = await client.send_chat_message(chat_id, content, mentions=parsed_mentions)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
@@ -323,7 +333,12 @@ async def reply_to_channel_message(
     """
     _init_if_needed()
     client = _require_auth()
-    parsed_mentions = json.loads(mentions) if mentions else None
+    parsed_mentions = None
+    if mentions:
+        try:
+            parsed_mentions = json.loads(mentions)
+        except (json.JSONDecodeError, TypeError):
+            return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
     result = await client.reply_to_channel_message(
         team_id, channel_id, message_id, content, mentions=parsed_mentions,
     )

@@ -99,39 +99,39 @@ class GraphClient:
 
     @staticmethod
     def _build_message_body(text: str, mentions: list[dict] | None = None) -> dict:
-        html = (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
-        )
+        html = GraphClient._to_html(text)
         payload: dict[str, Any] = {
             "body": {"content": html, "contentType": "html"},
         }
         if mentions:
             mention_objects = []
-            for i, m in enumerate(mentions):
+            idx = 0
+            for m in sorted(mentions, key=lambda x: len(x["name"]), reverse=True):
                 name = m["name"]
                 escaped = (
                     name.replace("&", "&amp;")
                     .replace("<", "&lt;")
                     .replace(">", "&gt;")
                 )
-                at_tag = f'<at id="{i}">{escaped}</at>'
-                html = html.replace(f"@{escaped}", at_tag)
-                mention_objects.append({
-                    "id": i,
-                    "mentionText": name,
-                    "mentioned": {
-                        "user": {
-                            "id": m["user_id"],
-                            "displayName": name,
-                            "userIdentityType": "aadUser",
-                        }
-                    },
-                })
+                at_tag = f'<at id="{idx}">{escaped}</at>'
+                new_html = html.replace(f"@{escaped}", at_tag)
+                if new_html != html:
+                    html = new_html
+                    mention_objects.append({
+                        "id": idx,
+                        "mentionText": name,
+                        "mentioned": {
+                            "user": {
+                                "id": m["user_id"],
+                                "displayName": name,
+                                "userIdentityType": "aadUser",
+                            }
+                        },
+                    })
+                    idx += 1
             payload["body"]["content"] = html
-            payload["mentions"] = mention_objects
+            if mention_objects:
+                payload["mentions"] = mention_objects
         return payload
 
     async def send_channel_message(
@@ -292,7 +292,7 @@ class GraphClient:
     async def mark_chat_read(self, chat_id: str, user_id: str) -> None:
         await self._post_no_content(
             f"/chats/{chat_id}/markChatReadForUser",
-            {"user": {"id": user_id, "@odata.type": "microsoft.graph.teamworkUserIdentity"}},
+            {"user": {"id": user_id, "@odata.type": "#microsoft.graph.teamworkUserIdentity"}},
         )
 
     async def mark_chat_unread(
@@ -301,7 +301,7 @@ class GraphClient:
         await self._post_no_content(
             f"/chats/{chat_id}/markChatUnreadForUser",
             {
-                "user": {"id": user_id, "@odata.type": "microsoft.graph.teamworkUserIdentity"},
+                "user": {"id": user_id, "@odata.type": "#microsoft.graph.teamworkUserIdentity"},
                 "lastMessageReadDateTime": last_message_read_date_time,
             },
         )
@@ -326,16 +326,18 @@ class GraphClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        containers = data.get("value", [{}])[0].get("hitsContainers", [{}])
+        values = data.get("value") or [{}]
+        containers = values[0].get("hitsContainers", [])
         if not containers:
             return []
         return containers[0].get("hits", [])
 
     async def search_users(self, query: str, limit: int = 10) -> list[dict]:
+        safe = query.replace("'", "''")
         data = await self._get(
             "/users",
             params={
-                "$filter": f"startsWith(displayName,'{query}') or startsWith(mail,'{query}')",
+                "$filter": f"startsWith(displayName,'{safe}') or startsWith(mail,'{safe}')",
                 "$select": "id,displayName,mail,userPrincipalName,jobTitle",
                 "$top": limit,
             },

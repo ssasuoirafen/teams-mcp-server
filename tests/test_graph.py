@@ -484,3 +484,13 @@ async def test_search_messages():
     assert body["requests"][0]["query"]["queryString"] == "test"
     assert str(captured[0].url) == f"{GRAPH_BETA}/search/query"
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_search_messages_empty():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"value": []}, request=request)
+    client = make_client(transport=httpx.MockTransport(handler))
+    result = await client.search_messages("nonexistent")
+    assert result == []
+    await client.close()

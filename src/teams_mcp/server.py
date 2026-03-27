@@ -53,6 +53,86 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "")
 
 
+def _extract_element_text(element: dict) -> list[str]:
+    """Extract text lines from a single Adaptive Card element."""
+    t = element.get("type", "")
+    lines: list[str] = []
+
+    if t == "TextBlock":
+        text = element.get("text", "")
+        if text:
+            lines.append(text)
+
+    elif t == "FactSet":
+        for fact in element.get("facts", []):
+            title = fact.get("title", "")
+            value = fact.get("value", "")
+            if title or value:
+                lines.append(f"{title}: {value}" if title and value else title or value)
+
+    elif t == "RichTextBlock":
+        parts = []
+        for inline in element.get("inlines", []):
+            text = inline.get("text", "")
+            if text:
+                parts.append(text)
+        if parts:
+            lines.append("".join(parts))
+
+    elif t in ("Container", "Column", "TableCell"):
+        for item in element.get("items", []):
+            lines.extend(_extract_element_text(item))
+
+    elif t == "ColumnSet":
+        for col in element.get("columns", []):
+            lines.extend(_extract_element_text(col))
+
+    elif t == "Table":
+        for row in element.get("rows", []):
+            for cell in row.get("cells", []):
+                lines.extend(_extract_element_text(cell))
+
+    elif t == "ImageSet":
+        for img in element.get("images", []):
+            alt = img.get("altText", "")
+            if alt:
+                lines.append(alt)
+
+    elif t == "Image":
+        alt = element.get("altText", "")
+        if alt:
+            lines.append(alt)
+
+    elif t == "ActionSet":
+        for action in element.get("actions", []):
+            lines.extend(_extract_element_text(action))
+
+    elif t == "Action.OpenUrl":
+        title = element.get("title", "")
+        url = element.get("url", "")
+        if title and url:
+            lines.append(f"{title} ({url})")
+        elif title:
+            lines.append(title)
+
+    elif t == "Action.Submit":
+        title = element.get("title", "")
+        if title:
+            lines.append(title)
+
+    return lines
+
+
+def _extract_adaptive_card_text(card: dict) -> str:
+    """Extract all readable text from an Adaptive Card as plain text."""
+    lines: list[str] = []
+    for element in card.get("body", []):
+        lines.extend(_extract_element_text(element))
+    for action in card.get("actions", []):
+        lines.extend(_extract_element_text(action))
+    return "\n".join(lines)
+
+
 def _format_member(member: dict) -> dict:
     return {
         "id": member.get("userId") or member.get("id"),

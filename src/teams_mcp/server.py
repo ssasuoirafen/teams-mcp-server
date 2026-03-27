@@ -133,6 +133,22 @@ def _extract_adaptive_card_text(card: dict) -> str:
     return "\n".join(lines)
 
 
+def _extract_attachments_text(attachments: list) -> str:
+    """Extract text from Adaptive Card attachments."""
+    lines: list[str] = []
+    for att in attachments:
+        if att.get("contentType") != "application/vnd.microsoft.card.adaptive":
+            continue
+        try:
+            card = json.loads(att.get("content", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        text = _extract_adaptive_card_text(card)
+        if text:
+            lines.append(text)
+    return "\n".join(lines)
+
+
 def _format_member(member: dict) -> dict:
     return {
         "id": member.get("userId") or member.get("id"),
@@ -143,11 +159,14 @@ def _format_member(member: dict) -> dict:
 
 
 def _format_message(msg: dict) -> dict:
+    body_text = _strip_html((msg.get("body") or {}).get("content", ""))
+    card_text = _extract_attachments_text(msg.get("attachments") or [])
+    content = "\n".join(filter(None, [body_text, card_text]))
     return {
         "id": msg.get("id"),
         "sender": (msg.get("from") or {}).get("user", {}).get("displayName"),
         "createdDateTime": msg.get("createdDateTime"),
-        "content": _strip_html((msg.get("body") or {}).get("content", "")),
+        "content": content,
     }
 
 

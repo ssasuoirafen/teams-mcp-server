@@ -1,6 +1,6 @@
 # teams-mcp-server
 
-MCP server for Microsoft Teams via Microsoft Graph API. Supports channels, chats, search, reactions, pins, and more.
+MCP server for Microsoft Teams via Microsoft Graph API.
 
 ## Tools
 

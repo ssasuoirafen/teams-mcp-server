@@ -29,27 +29,9 @@ MCP server for Microsoft Teams via Microsoft Graph API. Supports channels, chats
 
 Adaptive Card attachments (from bots) are automatically extracted as plain text.
 
-## Setup
-
-Requires Python 3.12+.
-
-```bash
-git clone https://github.com/ssasuoirafen/teams-mcp-server.git
-cd teams-mcp-server
-uv sync
-```
-
 ## Configuration
 
-You need an Azure AD app registration with delegated permissions for Microsoft Graph.
-
-Environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `TEAMS_MCP_TENANT_ID` | Azure AD tenant ID |
-| `TEAMS_MCP_CLIENT_ID` | App registration client ID |
-| `TEAMS_MCP_SCOPES` | (Optional) Comma-separated scopes |
+Requires an Azure AD app registration with delegated permissions for Microsoft Graph.
 
 ### Claude Code (`.mcp.json`)
 
@@ -57,8 +39,8 @@ Environment variables:
 {
   "mcpServers": {
     "teams-mcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/teams-mcp-server", "teams-mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ssasuoirafen/teams-mcp-server", "teams-mcp"],
       "env": {
         "TEAMS_MCP_TENANT_ID": "your-tenant-id",
         "TEAMS_MCP_CLIENT_ID": "your-client-id"
@@ -68,6 +50,12 @@ Environment variables:
 }
 ```
 
+| Variable | Description |
+|----------|-------------|
+| `TEAMS_MCP_TENANT_ID` | Azure AD tenant ID |
+| `TEAMS_MCP_CLIENT_ID` | App registration client ID |
+| `TEAMS_MCP_SCOPES` | (Optional) Comma-separated scopes |
+
 ### Authentication
 
 On first use, call the `login` tool. It returns a device code and URL. Open the URL in a browser, enter the code, then call `complete_login`. Tokens are cached in `~/.teams-mcp/token_cache.json`.
@@ -75,6 +63,8 @@ On first use, call the `login` tool. It returns a device code and URL. Open the 
 ## Development
 
 ```bash
+git clone https://github.com/ssasuoirafen/teams-mcp-server.git
+cd teams-mcp-server
 uv sync --extra dev
 uv run pytest tests/ -v
 ```

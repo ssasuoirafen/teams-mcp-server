@@ -120,6 +120,14 @@ def _extract_element_text(element: dict) -> list[str]:
         if title:
             lines.append(title)
 
+    elif t == "Action.ShowCard":
+        title = element.get("title", "")
+        if title:
+            lines.append(title)
+        nested = element.get("card", {})
+        if nested:
+            lines.append(_extract_adaptive_card_text(nested))
+
     return lines
 
 
@@ -139,10 +147,14 @@ def _extract_attachments_text(attachments: list) -> str:
     for att in attachments:
         if att.get("contentType") != "application/vnd.microsoft.card.adaptive":
             continue
-        try:
-            card = json.loads(att.get("content", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            continue
+        raw = att.get("content", "{}")
+        if isinstance(raw, dict):
+            card = raw
+        else:
+            try:
+                card = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
         text = _extract_adaptive_card_text(card)
         if text:
             lines.append(text)

@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 from teams_mcp.server import _extract_adaptive_card_text, _extract_attachments_text, _format_message
 
 
@@ -266,3 +264,40 @@ def test_format_message_no_attachments_unchanged():
     }
     result = _format_message(msg)
     assert result["content"] == "Plain message"
+
+
+def test_extract_attachments_text_content_as_dict():
+    """Graph API sometimes returns content as pre-parsed dict."""
+    attachments = [
+        {
+            "id": "att-1",
+            "contentType": "application/vnd.microsoft.card.adaptive",
+            "content": {
+                "type": "AdaptiveCard",
+                "body": [{"type": "TextBlock", "text": "Already parsed"}],
+            },
+        }
+    ]
+    assert _extract_attachments_text(attachments) == "Already parsed"
+
+
+def test_action_showcard():
+    card = {
+        "type": "AdaptiveCard",
+        "body": [{"type": "TextBlock", "text": "Main text"}],
+        "actions": [
+            {
+                "type": "Action.ShowCard",
+                "title": "Show details",
+                "card": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                        {"type": "TextBlock", "text": "Hidden detail"},
+                        {"type": "FactSet", "facts": [{"title": "Key", "value": "Val"}]},
+                    ],
+                },
+            }
+        ],
+    }
+    result = _extract_adaptive_card_text(card)
+    assert result == "Main text\nShow details\nHidden detail\nKey: Val"

@@ -169,10 +169,25 @@ class GraphClient:
         self, chat_id: str, content: str, mentions: list[dict] | None = None,
         reply_to_id: str | None = None,
     ) -> dict:
-        payload = self._build_message_body(content, mentions)
         if reply_to_id:
-            payload["replyTo"] = {"messageId": reply_to_id}
-        return await self._post(f"/chats/{chat_id}/messages", payload)
+            return await self.reply_with_quote(chat_id, reply_to_id, content, mentions)
+        return await self._post(
+            f"/chats/{chat_id}/messages",
+            self._build_message_body(content, mentions),
+        )
+
+    async def reply_with_quote(
+        self, chat_id: str, message_id: str, content: str,
+        mentions: list[dict] | None = None,
+    ) -> dict:
+        body = self._build_message_body(content, mentions)
+        payload: dict[str, Any] = {
+            "messageIds": [message_id],
+            "replyMessage": body,
+        }
+        return await self._post(
+            f"/chats/{chat_id}/messages/replyWithQuote", payload,
+        )
 
     async def reply_to_channel_message(
         self, team_id: str, channel_id: str, message_id: str, content: str,

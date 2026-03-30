@@ -1,3 +1,4 @@
+import re
 from typing import Any, Callable
 
 import httpx
@@ -115,7 +116,9 @@ class GraphClient:
 
     @staticmethod
     def _to_html(text: str) -> str:
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        text = re.sub(r'(https?://[^\s<>]+)', r'<a href="\1">\1</a>', text)
+        return text.replace("\n", "<br>")
 
     @staticmethod
     def _build_message_body(text: str, mentions: list[dict] | None = None) -> dict:

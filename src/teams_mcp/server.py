@@ -408,11 +408,14 @@ async def send_channel_message(
 # Tool: send_chat_message
 # Annotations: openWorldHint=True
 @mcp.tool()
-async def send_chat_message(chat_id: str, content: str, mentions: str | None = None) -> str:
+async def send_chat_message(
+    chat_id: str, content: str, mentions: str | None = None, reply_to: str | None = None,
+) -> str:
     """Send a message to a Teams chat.
 
     Use list_chats to get the chat_id.
-    Chat messages don't support threaded replies - just send a new message.
+    reply_to: optional message ID to reply to (shows as a quoted reply).
+    Use list_chat_messages to get the message_id.
 
     mentions: optional JSON array of users to @mention.
     Format: [{"user_id": "...", "name": "Display Name"}]
@@ -426,7 +429,7 @@ async def send_chat_message(chat_id: str, content: str, mentions: str | None = N
             parsed_mentions = json.loads(mentions)
         except (json.JSONDecodeError, TypeError):
             return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
-    result = await client.send_chat_message(chat_id, content, mentions=parsed_mentions)
+    result = await client.send_chat_message(chat_id, content, mentions=parsed_mentions, reply_to_id=reply_to)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
 

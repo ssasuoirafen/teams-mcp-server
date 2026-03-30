@@ -167,11 +167,12 @@ class GraphClient:
 
     async def send_chat_message(
         self, chat_id: str, content: str, mentions: list[dict] | None = None,
+        reply_to_id: str | None = None,
     ) -> dict:
-        return await self._post(
-            f"/chats/{chat_id}/messages",
-            self._build_message_body(content, mentions),
-        )
+        payload = self._build_message_body(content, mentions)
+        if reply_to_id:
+            payload["replyTo"] = {"messageId": reply_to_id}
+        return await self._post(f"/chats/{chat_id}/messages", payload)
 
     async def reply_to_channel_message(
         self, team_id: str, channel_id: str, message_id: str, content: str,

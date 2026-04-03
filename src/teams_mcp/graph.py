@@ -383,5 +383,26 @@ class GraphClient:
         )
         return data.get("value", [])
 
+    async def _get_bytes(self, path: str) -> bytes:
+        resp = await self._http.get(path, headers=self._headers())
+        self._raise_for_status(resp)
+        return resp.content
+
+    async def download_hosted_content(
+        self,
+        chat_id: str | None,
+        team_id: str | None,
+        channel_id: str | None,
+        message_id: str,
+        hosted_content_id: str,
+    ) -> bytes:
+        if chat_id:
+            path = f"/chats/{chat_id}/messages/{message_id}/hostedContents/{hosted_content_id}/$value"
+        elif team_id and channel_id:
+            path = f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/hostedContents/{hosted_content_id}/$value"
+        else:
+            raise ValueError("Provide chat_id OR (team_id + channel_id)")
+        return await self._get_bytes(path)
+
     async def close(self):
         await self._http.aclose()

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 from mcp.server.fastmcp import FastMCP
 
@@ -170,16 +171,59 @@ def _format_member(member: dict) -> dict:
     }
 
 
+def _parse_mentions(mentions: list | str | None) -> list[dict] | None:
+    """Accept mentions as list (FastMCP auto-deserialized) or JSON string."""
+    if mentions is None:
+        return None
+    if isinstance(mentions, list):
+        return mentions
+    try:
+        return json.loads(mentions)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _format_attachments(attachments: list) -> list[dict]:
+    """Extract attachment metadata for file/image attachments."""
+    result = []
+    for att in attachments:
+        ct = att.get("contentType", "")
+        if ct == "application/vnd.microsoft.card.adaptive":
+            continue
+        info: dict = {"id": att.get("id"), "name": att.get("name"), "contentType": ct}
+        url = att.get("contentUrl")
+        if url:
+            info["contentUrl"] = url
+        result.append(info)
+    return result
+
+
+def _format_hosted_contents(body_html: str) -> list[dict]:
+    """Extract hosted content IDs from inline <img> tags."""
+    result = []
+    for match in re.finditer(r'src="[^"]*?/hostedContents/([^/"]+)/\$value"', body_html):
+        result.append({"hostedContentId": match.group(1)})
+    return result
+
+
 def _format_message(msg: dict) -> dict:
-    body_text = _strip_html((msg.get("body") or {}).get("content", ""))
+    body_html = (msg.get("body") or {}).get("content", "")
+    body_text = _strip_html(body_html)
     card_text = _extract_attachments_text(msg.get("attachments") or [])
     content = "\n".join(filter(None, [body_text, card_text]))
-    return {
+    result: dict = {
         "id": msg.get("id"),
         "sender": (msg.get("from") or {}).get("user", {}).get("displayName"),
         "createdDateTime": msg.get("createdDateTime"),
         "content": content,
     }
+    file_attachments = _format_attachments(msg.get("attachments") or [])
+    hosted = _format_hosted_contents(body_html)
+    if file_attachments:
+        result["attachments"] = file_attachments
+    if hosted:
+        result["hostedContents"] = hosted
+    return result
 
 
 # Global to hold pending device flow between login and complete_login calls
@@ -381,7 +425,7 @@ async def list_chat_messages(chat_id: str, limit: int = 20) -> str:
 # Annotations: openWorldHint=True
 @mcp.tool()
 async def send_channel_message(
-    team_id: str, channel_id: str, content: str, mentions: str | None = None,
+    team_id: str, channel_id: str, content: str, mentions: list | str | None = None,
 ) -> str:
     """Send a message to a Teams channel.
 
@@ -395,12 +439,7 @@ async def send_channel_message(
     """
     _init_if_needed()
     client = _require_auth()
-    parsed_mentions = None
-    if mentions:
-        try:
-            parsed_mentions = json.loads(mentions)
-        except (json.JSONDecodeError, TypeError):
-            return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
+    parsed_mentions = _parse_mentions(mentions)
     result = await client.send_channel_message(team_id, channel_id, content, mentions=parsed_mentions)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
@@ -409,7 +448,7 @@ async def send_channel_message(
 # Annotations: openWorldHint=True
 @mcp.tool()
 async def send_chat_message(
-    chat_id: str, content: str, mentions: str | None = None, reply_to: str | None = None,
+    chat_id: str, content: str, mentions: list | str | None = None, reply_to: str | None = None,
 ) -> str:
     """Send a message to a Teams chat.
 
@@ -423,12 +462,7 @@ async def send_chat_message(
     """
     _init_if_needed()
     client = _require_auth()
-    parsed_mentions = None
-    if mentions:
-        try:
-            parsed_mentions = json.loads(mentions)
-        except (json.JSONDecodeError, TypeError):
-            return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
+    parsed_mentions = _parse_mentions(mentions)
     result = await client.send_chat_message(chat_id, content, mentions=parsed_mentions, reply_to_id=reply_to)
     return json.dumps(_format_message(result), ensure_ascii=False, indent=2)
 
@@ -437,7 +471,7 @@ async def send_chat_message(
 # Annotations: openWorldHint=True
 @mcp.tool()
 async def reply_to_channel_message(
-    team_id: str, channel_id: str, message_id: str, content: str, mentions: str | None = None,
+    team_id: str, channel_id: str, message_id: str, content: str, mentions: list | str | None = None,
 ) -> str:
     """Reply to a message in a Teams channel thread.
 
@@ -450,12 +484,7 @@ async def reply_to_channel_message(
     """
     _init_if_needed()
     client = _require_auth()
-    parsed_mentions = None
-    if mentions:
-        try:
-            parsed_mentions = json.loads(mentions)
-        except (json.JSONDecodeError, TypeError):
-            return json.dumps({"error": "Invalid mentions format. Expected JSON array: [{\"user_id\": \"...\", \"name\": \"...\"}]"})
+    parsed_mentions = _parse_mentions(mentions)
     result = await client.reply_to_channel_message(
         team_id, channel_id, message_id, content, mentions=parsed_mentions,
     )
@@ -781,6 +810,43 @@ async def get_user(query: str, limit: int = 10) -> str:
         for u in users
     ]
     return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def download_attachment(
+    message_id: str,
+    hosted_content_id: str,
+    chat_id: str | None = None,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+) -> str:
+    """Download an inline image (hosted content) from a message.
+
+    For channel messages: provide team_id + channel_id + message_id.
+    For chat messages: provide chat_id + message_id.
+    hosted_content_id: from the hostedContents array in message data.
+    Returns the local file path to the downloaded image.
+    """
+    _init_if_needed()
+    client = _require_auth()
+    data = await client.download_hosted_content(
+        chat_id=chat_id,
+        team_id=team_id,
+        channel_id=channel_id,
+        message_id=message_id,
+        hosted_content_id=hosted_content_id,
+    )
+    suffix = ".png"
+    if data[:3] == b"\xff\xd8\xff":
+        suffix = ".jpg"
+    elif data[:4] == b"GIF8":
+        suffix = ".gif"
+    elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        suffix = ".webp"
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix="teams_attachment_")
+    os.write(fd, data)
+    os.close(fd)
+    return json.dumps({"path": path, "size": len(data)}, ensure_ascii=False, indent=2)
 
 
 def main():

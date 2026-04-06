@@ -114,6 +114,9 @@ class GraphClient:
         )
         return data.get("value", [])
 
+    async def get_chat_message(self, chat_id: str, message_id: str) -> dict:
+        return await self._get(f"/chats/{chat_id}/messages/{message_id}")
+
     @staticmethod
     def _to_html(text: str) -> str:
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

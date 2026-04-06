@@ -301,3 +301,148 @@ def test_action_showcard():
     }
     result = _extract_adaptive_card_text(card)
     assert result == "Main text\nShow details\nHidden detail\nKey: Val"
+
+
+# --- Forwarded message tests ---
+
+
+def test_forwarded_message_real_api_format():
+    """Forwarded message with real Graph API field names (originalMessage*)."""
+    attachments = [
+        {
+            "id": "1727881360458",
+            "contentType": "forwardedMessageReference",
+            "content": json.dumps({
+                "originalMessageId": "1727881360458",
+                "originalMessageContent": "\n<p>Here are the credentials</p>\n",
+                "originalConversationId": "19:abc123@thread.v2",
+                "originalSentDateTime": "2026-04-01T10:00:00+00:00",
+                "originalMessageSender": {
+                    "user": {
+                        "userIdentityType": "aadUser",
+                        "id": "user-id-123",
+                        "displayName": "Alice",
+                    }
+                },
+            }),
+        }
+    ]
+    result = _extract_attachments_text(attachments)
+    assert "[Forwarded from Alice]" in result
+    assert "Here are the credentials" in result
+
+
+def test_forwarded_message_dict_content():
+    """Forwarded message with pre-parsed dict content."""
+    attachments = [
+        {
+            "id": "ref-2",
+            "contentType": "forwardedMessageReference",
+            "content": {
+                "originalMessageSender": {"user": {"displayName": "Bob"}},
+                "originalMessageContent": "<p>Check this out</p>",
+            },
+        }
+    ]
+    result = _extract_attachments_text(attachments)
+    assert "[Forwarded from Bob]" in result
+    assert "Check this out" in result
+
+
+def test_forwarded_message_null_displayname():
+    """Forwarded message where sender displayName is null (Graph API quirk)."""
+    attachments = [
+        {
+            "id": "ref-3",
+            "contentType": "forwardedMessageReference",
+            "content": json.dumps({
+                "originalMessageSender": {"user": {"displayName": None, "id": "uid"}},
+                "originalMessageContent": "<p>Important info</p>",
+            }),
+        }
+    ]
+    result = _extract_attachments_text(attachments)
+    assert "Important info" in result
+    assert "[Forwarded from" not in result
+
+
+def test_quoted_reply_messageref_fallback():
+    """messageReference (quoted reply) uses messageSender/messagePreview fields."""
+    attachments = [
+        {
+            "id": "ref-4",
+            "contentType": "messageReference",
+            "content": json.dumps({
+                "messageSender": {"user": {"displayName": "Carol"}},
+                "messagePreview": "Original quoted text",
+            }),
+        }
+    ]
+    result = _extract_attachments_text(attachments)
+    assert "[Forwarded from Carol]" in result
+    assert "Original quoted text" in result
+
+
+def test_forwarded_message_empty_content():
+    """Forwarded message with no content returns empty."""
+    attachments = [
+        {
+            "id": "ref-5",
+            "contentType": "forwardedMessageReference",
+            "content": "",
+        }
+    ]
+    assert _extract_attachments_text(attachments) == ""
+
+
+def test_forwarded_message_not_in_format_attachments():
+    """Forwarded messages should be excluded from _format_attachments."""
+    from teams_mcp.server import _format_attachments
+
+    attachments = [
+        {"id": "ref-6", "contentType": "forwardedMessageReference", "content": "{}"},
+        {"id": "file-1", "contentType": "application/pdf", "name": "doc.pdf"},
+    ]
+    result = _format_attachments(attachments)
+    assert len(result) == 1
+    assert result[0]["name"] == "doc.pdf"
+
+
+def test_format_message_with_forwarded():
+    """Full _format_message pipeline includes forwarded content."""
+    msg = {
+        "id": "msg-1",
+        "from": {"user": {"displayName": "Dave"}},
+        "createdDateTime": "2026-04-06T08:00:00Z",
+        "body": {"content": "", "contentType": "html"},
+        "attachments": [
+            {
+                "id": "ref-7",
+                "contentType": "forwardedMessageReference",
+                "content": json.dumps({
+                    "originalMessageSender": {"user": {"displayName": "Eve"}},
+                    "originalMessageContent": "<p>Secret data</p>",
+                }),
+            }
+        ],
+    }
+    result = _format_message(msg)
+    assert "Eve" in result["content"]
+    assert "Secret data" in result["content"]
+
+
+def test_forwarded_message_body_fallback():
+    """Falls back to body field when no originalMessageContent or messagePreview."""
+    attachments = [
+        {
+            "id": "ref-8",
+            "contentType": "messageReference",
+            "content": json.dumps({
+                "messageSender": {"user": {"displayName": "Frank"}},
+                "body": {"content": "<p>Body <b>fallback</b></p>"},
+            }),
+        }
+    ]
+    result = _extract_attachments_text(attachments)
+    assert "[Forwarded from Frank]" in result
+    assert "Body fallback" in result

@@ -142,23 +142,77 @@ def _extract_adaptive_card_text(card: dict) -> str:
     return "\n".join(lines)
 
 
+def _extract_forwarded_text(att: dict) -> str:
+    """Extract text from a forwarded/quoted message reference attachment.
+
+    forwardedMessageReference uses: originalMessageSender, originalMessageContent
+    messageReference uses: messageSender, messagePreview, body
+    """
+    raw = att.get("content", "")
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return _strip_html(raw)
+    else:
+        data = raw
+
+    parts = []
+
+    # Sender: try forwarded fields first, then quoted-reply fields
+    sender = (
+        (data.get("originalMessageSender") or {}).get("user", {}).get("displayName")
+        or (data.get("messageSender") or {}).get("user", {}).get("displayName")
+    )
+    if sender:
+        parts.append(f"[Forwarded from {sender}]")
+
+    # Content: try forwarded field first, then quoted-reply fields
+    content = data.get("originalMessageContent", "")
+    if content:
+        parts.append(_strip_html(content))
+    else:
+        preview = data.get("messagePreview", "")
+        if preview:
+            parts.append(preview)
+        else:
+            body = data.get("body")
+            if isinstance(body, dict):
+                body_content = body.get("content", "")
+                if body_content:
+                    parts.append(_strip_html(body_content))
+            elif isinstance(body, str):
+                parts.append(body)
+
+    return "\n".join(parts)
+
+
 def _extract_attachments_text(attachments: list) -> str:
-    """Extract text from Adaptive Card attachments."""
+    """Extract text from Adaptive Card and forwarded message attachments."""
     lines: list[str] = []
     for att in attachments:
-        if att.get("contentType") != "application/vnd.microsoft.card.adaptive":
-            continue
-        raw = att.get("content", "{}")
-        if isinstance(raw, dict):
-            card = raw
-        else:
-            try:
-                card = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                continue
-        text = _extract_adaptive_card_text(card)
-        if text:
-            lines.append(text)
+        ct = att.get("contentType", "")
+
+        if ct == "application/vnd.microsoft.card.adaptive":
+            raw = att.get("content", "{}")
+            if isinstance(raw, dict):
+                card = raw
+            else:
+                try:
+                    card = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            text = _extract_adaptive_card_text(card)
+            if text:
+                lines.append(text)
+
+        elif "messageReference" in ct or "forwardedMessage" in ct:
+            text = _extract_forwarded_text(att)
+            if text:
+                lines.append(text)
+
     return "\n".join(lines)
 
 
@@ -190,6 +244,8 @@ def _format_attachments(attachments: list) -> list[dict]:
         ct = att.get("contentType", "")
         if ct == "application/vnd.microsoft.card.adaptive":
             continue
+        if "messageReference" in ct or "forwardedMessage" in ct:
+            continue  # handled by _extract_attachments_text
         info: dict = {"id": att.get("id"), "name": att.get("name"), "contentType": ct}
         url = att.get("contentUrl")
         if url:

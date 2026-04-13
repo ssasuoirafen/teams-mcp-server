@@ -9,12 +9,6 @@ dependencies = [
     "httpx>=0.28.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.25.0",
-]
-
 [project.scripts]
 teams-mcp = "teams_mcp.server:main"
 
@@ -24,6 +18,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/teams_mcp"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "strict"

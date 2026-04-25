@@ -4,7 +4,6 @@ from typing import Any, Callable
 import httpx
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-GRAPH_BETA = "https://graph.microsoft.com/beta"
 
 
 class GraphApiError(Exception):
@@ -352,10 +351,9 @@ class GraphClient:
         return await self._get(f"/users/{user_id}/presence")
 
     async def search_messages(self, query: str, size: int = 25) -> list[dict]:
-        resp = await self._http.post(
-            f"{GRAPH_BETA}/search/query",
-            headers=self._headers(),
-            json={
+        data = await self._post(
+            "/search/query",
+            {
                 "requests": [
                     {
                         "entityTypes": ["chatMessage"],
@@ -366,8 +364,6 @@ class GraphClient:
                 ],
             },
         )
-        self._raise_for_status(resp)
-        data = resp.json()
         values = data.get("value") or [{}]
         containers = values[0].get("hitsContainers", [])
         if not containers:

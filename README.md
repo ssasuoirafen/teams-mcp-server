@@ -65,8 +65,8 @@ On first use, call the `login` tool. It returns a device code and URL. Open the 
 ```bash
 git clone https://github.com/ssasuoirafen/teams-mcp-server.git
 cd teams-mcp-server
-uv sync --extra dev
-uv run pytest tests/ -v
+uv sync
+uv run teams-mcp
 ```
 
 ## License

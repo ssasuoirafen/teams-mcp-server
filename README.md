@@ -26,6 +26,7 @@ MCP server for Microsoft Teams via Microsoft Graph API.
 | `mark_chat_read` / `mark_chat_unread` | Mark chat read status |
 | `list_team_members` / `list_channel_members` / `list_chat_members` | List members |
 | `list_pinned_messages` | List pinned messages |
+| `download_attachment` | Download an inline image (hostedContents) to a temp file |
 
 Adaptive Card attachments (from bots) are automatically extracted as plain text.
 

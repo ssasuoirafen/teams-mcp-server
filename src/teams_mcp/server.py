@@ -554,7 +554,7 @@ async def create_chat(user_email: str, message: str) -> str:
     """Create a new 1:1 chat with a user and send the first message.
 
     Use this when no existing chat is found via list_chats.
-    Requires the user's email address (e.g. amaksudov@avo.uz)."""
+    Requires the user's email address (e.g. user@example.com)."""
     _init_if_needed()
     client = _require_auth()
     me = await client.get_me()

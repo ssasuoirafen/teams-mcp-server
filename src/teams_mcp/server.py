@@ -823,9 +823,8 @@ async def get_user_presence(user_id: str) -> str:
 async def search_messages(query: str, size: int = 25) -> str:
     """Search for messages across all chats and channels.
 
-    Full-text search on message body and attachments.
+    Full-text search on message body and attachments via Microsoft Search API (v1.0).
     Returns matching messages ranked by relevance with sender and context.
-    Uses beta API - results may vary.
     """
     _init_if_needed()
     client = _require_auth()

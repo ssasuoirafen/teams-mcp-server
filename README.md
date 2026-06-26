@@ -57,6 +57,19 @@ Requires an Azure AD app registration with delegated permissions for Microsoft G
 | `TEAMS_MCP_CLIENT_ID` | App registration client ID |
 | `TEAMS_MCP_SCOPES` | (Optional) Comma-separated scopes |
 
+### Required permissions
+
+The app registration needs delegated Microsoft Graph permissions. By default the server requests the `.default` scope, so Azure issues a token covering every permission consented on the app registration. A typical set (any subset works - `.default` picks up whatever is consented):
+
+```
+User.Read, User.ReadBasic.All, Team.ReadBasic.All, TeamMember.Read.All,
+Channel.ReadBasic.All, ChannelMember.Read.All, ChannelMessage.Read.All,
+ChannelMessage.Send, ChannelMessage.ReadWrite, Chat.Read, Chat.ReadWrite,
+Presence.Read.All
+```
+
+These require tenant admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `ChannelMessage.ReadWrite`. Set `TEAMS_MCP_SCOPES` (comma-separated) to request a narrower set; a tool that hits a missing permission returns the Graph API 403 error message.
+
 ### Authentication
 
 On first use, call the `login` tool. It returns a device code and URL. Open the URL in a browser, enter the code, then call `complete_login`. Tokens are cached in `~/.teams-mcp/token_cache.json`.

@@ -31,8 +31,12 @@ graph: GraphClient | None = None
 
 def _init():
     global auth, graph
-    tenant_id = os.environ["TEAMS_MCP_TENANT_ID"]
-    client_id = os.environ["TEAMS_MCP_CLIENT_ID"]
+    try:
+        tenant_id = os.environ["TEAMS_MCP_TENANT_ID"]
+        client_id = os.environ["TEAMS_MCP_CLIENT_ID"]
+    except KeyError:
+        print("teams-mcp: missing TEAMS_MCP_TENANT_ID/CLIENT_ID", file=sys.stderr)
+        raise SystemExit(1) from None
     scopes_env = os.environ.get("TEAMS_MCP_SCOPES")
     scopes = [s.strip() for s in scopes_env.split(",") if s.strip()] if scopes_env else None
     auth = AuthManager(tenant_id=tenant_id, client_id=client_id, scopes=scopes)

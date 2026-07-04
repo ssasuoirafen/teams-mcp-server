@@ -166,9 +166,10 @@ def _extract_forwarded_text(att: dict) -> str:
     parts = []
 
     # Sender: try forwarded fields first, then quoted-reply fields
+    # (.get("user") may be present-but-null for bot/application senders)
     sender = (
-        (data.get("originalMessageSender") or {}).get("user", {}).get("displayName")
-        or (data.get("messageSender") or {}).get("user", {}).get("displayName")
+        ((data.get("originalMessageSender") or {}).get("user") or {}).get("displayName")
+        or ((data.get("messageSender") or {}).get("user") or {}).get("displayName")
     )
     if sender:
         parts.append(f"[Forwarded from {sender}]")
@@ -271,9 +272,15 @@ def _format_message(msg: dict) -> dict:
     body_text = _strip_html(body_html)
     card_text = _extract_attachments_text(msg.get("attachments") or [])
     content = "\n".join(filter(None, [body_text, card_text]))
+    # bot/workflow messages carry from.user = null and from.application instead
+    frm = msg.get("from") or {}
+    sender = (
+        (frm.get("user") or {}).get("displayName")
+        or (frm.get("application") or {}).get("displayName")
+    )
     result: dict = {
         "id": msg.get("id"),
-        "sender": (msg.get("from") or {}).get("user", {}).get("displayName"),
+        "sender": sender,
         "createdDateTime": msg.get("createdDateTime"),
         "content": content,
     }

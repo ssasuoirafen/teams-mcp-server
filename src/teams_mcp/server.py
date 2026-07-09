@@ -268,7 +268,8 @@ def _format_hosted_contents(body_html: str) -> list[dict]:
 
 
 def _format_message(msg: dict) -> dict:
-    body_html = (msg.get("body") or {}).get("content", "")
+    # body.content may be present-but-null (e.g. deleted reply) - .get() default won't cover it
+    body_html = (msg.get("body") or {}).get("content") or ""
     body_text = _strip_html(body_html)
     card_text = _extract_attachments_text(msg.get("attachments") or [])
     content = "\n".join(filter(None, [body_text, card_text]))

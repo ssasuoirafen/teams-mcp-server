@@ -15,7 +15,7 @@ import os
 os.environ.setdefault("TEAMS_MCP_TENANT_ID", "test-tenant")
 os.environ.setdefault("TEAMS_MCP_CLIENT_ID", "test-client")
 
-from teams_mcp.server import mcp  # noqa: E402
+from teams_mcp.server import _format_message, mcp  # noqa: E402
 
 EXPECTED_TOOLS = {
     # auth
@@ -51,6 +51,23 @@ EXPECTED_TOOLS = {
     "mark_chat_read",
     "mark_chat_unread",
 }
+
+
+def test_format_message_null_body_content():
+    """Graph can send body.content = null (e.g. deleted reply in a thread).
+
+    Present-but-null defeats .get(k, default) defaults; formatting must not
+    crash (regression: re.finditer(None) in _format_hosted_contents).
+    """
+    msg = {
+        "id": "1783130166074",
+        "createdDateTime": "2026-07-04T10:00:00Z",
+        "from": {"user": {"displayName": "Someone"}},
+        "body": {"content": None},
+    }
+    result = _format_message(msg)
+    assert result["content"] == ""
+    assert "hostedContents" not in result
 
 
 def test_tool_count():

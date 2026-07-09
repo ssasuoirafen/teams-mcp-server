@@ -25,6 +25,7 @@ MCP server for Microsoft Teams via Microsoft Graph API.
 | `pin_message` / `unpin_message` | Manage pinned messages |
 | `mark_chat_read` / `mark_chat_unread` | Mark chat read status |
 | `list_team_members` / `list_channel_members` / `list_chat_members` | List members |
+| `list_team_tags` | List team tags (for @tag mentions in send/reply tools) |
 | `list_pinned_messages` | List pinned messages |
 | `download_attachment` | Download an inline image (hostedContents) to a temp file |
 
@@ -65,7 +66,7 @@ The app registration needs delegated Microsoft Graph permissions. By default the
 User.Read, User.ReadBasic.All, Team.ReadBasic.All, TeamMember.Read.All,
 Channel.ReadBasic.All, ChannelMember.Read.All, ChannelMessage.Read.All,
 ChannelMessage.Send, ChannelMessage.ReadWrite, Chat.Read, Chat.ReadWrite,
-Presence.Read.All
+Presence.Read.All, TeamworkTag.Read
 ```
 
 These require tenant admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `ChannelMessage.ReadWrite`. Set `TEAMS_MCP_SCOPES` (comma-separated) to request a narrower set; a tool that hits a missing permission returns the Graph API 403 error message.

@@ -15,6 +15,7 @@ import os
 os.environ.setdefault("TEAMS_MCP_TENANT_ID", "test-tenant")
 os.environ.setdefault("TEAMS_MCP_CLIENT_ID", "test-client")
 
+from teams_mcp.graph import GraphClient  # noqa: E402
 from teams_mcp.server import _format_message, mcp  # noqa: E402
 
 EXPECTED_TOOLS = {
@@ -25,6 +26,7 @@ EXPECTED_TOOLS = {
     "list_teams",
     "list_channels",
     "list_chats",
+    "list_team_tags",
     "list_channel_messages",
     "list_thread_replies",
     "list_chat_messages",
@@ -70,9 +72,55 @@ def test_format_message_null_body_content():
     assert "hostedContents" not in result
 
 
+def test_format_message_mentions_passthrough():
+    """Mention entities carry the identity ids (user/tag) - keep them raw for consumers."""
+    entity = {
+        "id": 0,
+        "mentionText": "gde",
+        "mentioned": {"tag": {"id": "TAG123", "displayName": "gde"}},
+    }
+    msg = {
+        "id": "1",
+        "from": {"user": {"displayName": "X"}},
+        "body": {"content": '<at id="0">gde</at> hi'},
+        "mentions": [entity],
+    }
+    assert _format_message(msg)["mentions"] == [entity]
+
+
 def test_tool_count():
     names = {tool.name for tool in mcp._tool_manager.list_tools()}
-    assert len(names) == 29
+    assert len(names) == 30
+
+
+def test_build_message_body_user_mention():
+    body = GraphClient._build_message_body(
+        "ping @Ivan Petrov", [{"user_id": "U1", "name": "Ivan Petrov"}]
+    )
+    assert '<at id="0">Ivan Petrov</at>' in body["body"]["content"]
+    assert body["mentions"] == [{
+        "id": 0,
+        "mentionText": "Ivan Petrov",
+        "mentioned": {"user": {
+            "id": "U1", "displayName": "Ivan Petrov", "userIdentityType": "aadUser",
+        }},
+    }]
+
+
+def test_build_message_body_tag_mention():
+    body = GraphClient._build_message_body(
+        "Передаю коллегам.\n\ncc: @bi", [{"tag_id": "TAG123", "name": "bi"}]
+    )
+    assert '<at id="0">bi</at>' in body["body"]["content"]
+    assert body["mentions"] == [{
+        "id": 0,
+        "mentionText": "bi",
+        "mentioned": {"tag": {
+            "@odata.type": "#microsoft.graph.teamworkTagIdentity",
+            "id": "TAG123",
+            "displayName": "bi",
+        }},
+    }]
 
 
 def test_tool_names():

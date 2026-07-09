@@ -291,6 +291,9 @@ def _format_message(msg: dict) -> dict:
         result["attachments"] = file_attachments
     if hosted:
         result["hostedContents"] = hosted
+    mentions = msg.get("mentions") or []
+    if mentions:
+        result["mentions"] = mentions  # raw entities - ids are needed for @mention replies
     return result
 
 
@@ -392,6 +395,32 @@ async def list_channels(team_id: str) -> str:
             "membershipType": c.get("membershipType"),
         }
         for c in channels
+    ]
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+# Tool: list_team_tags
+# Annotations: readOnlyHint=True, openWorldHint=True
+@mcp.tool()
+async def list_team_tags(team_id: str) -> str:
+    """List TEAM-level tags of a team (id, name, member count).
+
+    Requires the TeamworkTag.Read delegated permission. These ids work as
+    mention tag_ids in STANDARD channels. Shared channels have their own
+    channel-scoped tags that Graph does not expose via any API - a team-level
+    id posted there renders a phantom tag (no name, 0 members). For shared
+    channels, reuse the tag id from the "mentions" entities of an existing
+    message where a human @mentioned the tag."""
+    _init_if_needed()
+    client = _require_auth()
+    tags = await client.list_team_tags(team_id)
+    result = [
+        {
+            "id": t.get("id"),
+            "name": t.get("displayName"),
+            "memberCount": t.get("memberCount"),
+        }
+        for t in tags
     ]
     return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -500,8 +529,9 @@ async def send_channel_message(
     Use list_teams -> list_channels to get team_id and channel_id.
     For replies to existing messages, use reply_to_channel_message instead.
 
-    mentions: optional JSON array of users to @mention.
-    Format: [{"user_id": "...", "name": "Display Name"}]
+    mentions: optional JSON array of users or team tags to @mention.
+    Format: [{"user_id": "...", "name": "Display Name"} | {"tag_id": "...", "name": "TagName"}]
+    Get tag_id from list_team_tags (tags work only in channel messages).
     Use @DisplayName in content where the mention should appear.
     Get user_id from list_team_members, list_channel_members, or get_user.
     """
@@ -524,8 +554,9 @@ async def send_chat_message(
     reply_to: optional message ID to reply to (shows as a quoted reply).
     Use list_chat_messages to get the message_id.
 
-    mentions: optional JSON array of users to @mention.
-    Format: [{"user_id": "...", "name": "Display Name"}]
+    mentions: optional JSON array of users or team tags to @mention.
+    Format: [{"user_id": "...", "name": "Display Name"} | {"tag_id": "...", "name": "TagName"}]
+    Get tag_id from list_team_tags (tags work only in channel messages).
     Use @DisplayName in content where the mention should appear.
     """
     _init_if_needed()
@@ -546,8 +577,9 @@ async def reply_to_channel_message(
     Use list_channel_messages to get the message_id to reply to.
     For new top-level messages, use send_channel_message instead.
 
-    mentions: optional JSON array of users to @mention.
-    Format: [{"user_id": "...", "name": "Display Name"}]
+    mentions: optional JSON array of users or team tags to @mention.
+    Format: [{"user_id": "...", "name": "Display Name"} | {"tag_id": "...", "name": "TagName"}]
+    Get tag_id from list_team_tags (tags work only in channel messages).
     Use @DisplayName in content where the mention should appear.
     """
     _init_if_needed()

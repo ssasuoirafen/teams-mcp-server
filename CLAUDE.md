@@ -42,6 +42,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 - `list_teams`, `list_channels`, `list_chats`
 - `list_channel_messages`, `list_chat_messages`, `list_thread_replies`
 - `list_team_members`, `list_channel_members`, `list_chat_members`
+- `list_team_tags` (tag ids for @tag mentions; needs `TeamworkTag.Read`)
 - `list_pinned_messages`
 - `get_user_presence`, `get_user` (search by name/email)
 - `search_messages` (Microsoft Search API, full-text)
@@ -60,7 +61,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 - Channel tools need `team_id` + `channel_id`
 - Chat tools need `chat_id`
 - Dual-context tools (reactions, delete, update, download_attachment) accept either `chat_id` OR `team_id + channel_id`
-- Send tools accept `mentions` as list or JSON string: `[{"user_id": "...", "name": "..."}]`, use `@Name` in content (longest-name-first replacement to avoid partial matches)
+- Send tools accept `mentions` as list or JSON string: `[{"user_id": "...", "name": "..."}]` for users, `[{"tag_id": "...", "name": "..."}]` for team tags (channel messages only; ids from `list_team_tags`); use `@Name` in content (longest-name-first replacement to avoid partial matches)
 
 ## Error handling
 
@@ -78,7 +79,7 @@ Typical app registration permissions (any subset works — `.default` picks them
 User.Read, User.ReadBasic.All, Team.ReadBasic.All, TeamMember.Read.All,
 Channel.ReadBasic.All, ChannelMember.Read.All, ChannelMessage.Read.All,
 ChannelMessage.Send, ChannelMessage.ReadWrite, Chat.Read, Chat.ReadWrite,
-Presence.Read.All
+Presence.Read.All, TeamworkTag.Read
 ```
 
 Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `ChannelMessage.ReadWrite`.
@@ -95,6 +96,7 @@ Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`,
 - Some scopes require admin consent (see the Scopes section) - tools return 403 if not consented
 - `delete_message` is soft delete - message shows "This message has been deleted" to other users
 - Token cache at `~/.teams-mcp/token_cache.json` - delete file to force re-auth
+- Tag mentions: `GET /teams/{id}/tags` returns TEAM-level tags - valid as mention ids in standard channels only. Shared channels (`membershipType` reads as `unknownFutureValue` on v1.0) use channel-scoped tags with no Graph API at all; a team-level id posted there renders a phantom tag (0 members). Channel-tag ids appear only inside `mentions[]` of stored messages - harvest from a manual mention. Note: sending `mentioned.tag` is formally documented only on Graph beta; v1.0 accepts it (open type) and round-trips it on reads
 
 ## Conventions
 

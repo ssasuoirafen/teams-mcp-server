@@ -73,6 +73,10 @@ class GraphClient:
         )
         return data.get("value", [])
 
+    async def list_team_tags(self, team_id: str) -> list[dict]:
+        data = await self._get(f"/teams/{team_id}/tags")
+        return data.get("value", [])
+
     async def list_chats(self, limit: int = 20) -> list[dict]:
         data = await self._get(
             "/me/chats",
@@ -140,20 +144,27 @@ class GraphClient:
                 )
                 at_tag = f'<at id="{idx}">{escaped}</at>'
                 new_html = html.replace(f"@{escaped}", at_tag)
-                if new_html != html:
-                    html = new_html
-                    mention_objects.append({
-                        "id": idx,
-                        "mentionText": name,
-                        "mentioned": {
-                            "user": {
-                                "id": m["user_id"],
-                                "displayName": name,
-                                "userIdentityType": "aadUser",
-                            }
-                        },
-                    })
-                    idx += 1
+                if new_html == html:
+                    continue  # "@Name" not present in the text - drop the mention entry
+                html = new_html
+                if m.get("tag_id"):
+                    mentioned: dict[str, Any] = {
+                        "tag": {
+                            "@odata.type": "#microsoft.graph.teamworkTagIdentity",
+                            "id": m["tag_id"],
+                            "displayName": name,
+                        }
+                    }
+                else:
+                    mentioned = {
+                        "user": {
+                            "id": m["user_id"],
+                            "displayName": name,
+                            "userIdentityType": "aadUser",
+                        }
+                    }
+                mention_objects.append({"id": idx, "mentionText": name, "mentioned": mentioned})
+                idx += 1
             payload["body"]["content"] = html
             if mention_objects:
                 payload["mentions"] = mention_objects

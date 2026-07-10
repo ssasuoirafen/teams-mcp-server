@@ -96,6 +96,8 @@ Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`,
 - Some scopes require admin consent (see the Scopes section) - tools return 403 if not consented
 - `delete_message` is soft delete - message shows "This message has been deleted" to other users
 - Token cache at `~/.teams-mcp/token_cache.json` - delete file to force re-auth
+- Hosted content inside a channel REPLY is served only under `/messages/{parent}/replies/{reply}/hostedContents` - pass `parent_message_id` to `download_attachment`, the parent-form URL 404s for reply ids
+- Graph transport flakes intermittently (ReadTimeout etc.); httpx exceptions often have empty `str()` - the client wraps them in `GraphApiError` with the exception type so tool errors are never blank
 - Tag mentions: `GET /teams/{id}/tags` returns TEAM-level tags - valid as mention ids in standard channels only. Shared channels (`membershipType` reads as `unknownFutureValue` on v1.0) use channel-scoped tags with no Graph API at all; a team-level id posted there renders a phantom tag (0 members). Channel-tag ids appear only inside `mentions[]` of stored messages - harvest from a manual mention. Note: sending `mentioned.tag` is formally documented only on Graph beta; v1.0 accepts it (open type) and round-trips it on reads
 
 ## Conventions

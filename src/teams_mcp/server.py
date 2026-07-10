@@ -918,10 +918,14 @@ async def download_attachment(
     chat_id: str | None = None,
     team_id: str | None = None,
     channel_id: str | None = None,
+    parent_message_id: str | None = None,
 ) -> str:
     """Download an inline image (hosted content) from a message.
 
     For channel messages: provide team_id + channel_id + message_id.
+    For content inside a channel REPLY: additionally pass parent_message_id
+    (the thread root id) - Graph serves reply content only under
+    /messages/{parent}/replies/{reply}.
     For chat messages: provide chat_id + message_id.
     hosted_content_id: from the hostedContents array in message data.
     Returns the local file path to the downloaded image.
@@ -934,6 +938,7 @@ async def download_attachment(
         channel_id=channel_id,
         message_id=message_id,
         hosted_content_id=hosted_content_id,
+        parent_message_id=parent_message_id,
     )
     suffix = ".png"
     if data[:3] == b"\xff\xd8\xff":

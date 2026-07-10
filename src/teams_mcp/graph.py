@@ -40,27 +40,33 @@ class GraphClient:
             message = resp.text
         raise GraphApiError(resp.status_code, code, f"Graph API error {resp.status_code} ({code}): {message}")
 
-    async def _get(self, path: str, params: dict | None = None) -> dict[str, Any]:
-        resp = await self._http.get(path, headers=self._headers(), params=params)
+    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        try:
+            resp = await self._http.request(method, path, headers=self._headers(), **kwargs)
+        except httpx.HTTPError as exc:
+            # transport errors (ReadTimeout, ConnectError...) often carry an empty
+            # str() - surface the type so tool errors are not blank
+            raise GraphApiError(
+                0, type(exc).__name__,
+                f"transport error: {type(exc).__name__}: {exc or 'no detail'}",
+            ) from exc
         self._raise_for_status(resp)
-        return resp.json()
+        return resp
+
+    async def _get(self, path: str, params: dict | None = None) -> dict[str, Any]:
+        return (await self._request("GET", path, params=params)).json()
 
     async def _post(self, path: str, json_body: dict) -> dict[str, Any]:
-        resp = await self._http.post(path, headers=self._headers(), json=json_body)
-        self._raise_for_status(resp)
-        return resp.json()
+        return (await self._request("POST", path, json=json_body)).json()
 
     async def _post_no_content(self, path: str, json_body: dict | None = None) -> None:
-        resp = await self._http.post(path, headers=self._headers(), json=json_body)
-        self._raise_for_status(resp)
+        await self._request("POST", path, json=json_body)
 
     async def _patch(self, path: str, json_body: dict) -> None:
-        resp = await self._http.patch(path, headers=self._headers(), json=json_body)
-        self._raise_for_status(resp)
+        await self._request("PATCH", path, json=json_body)
 
     async def _delete(self, path: str) -> None:
-        resp = await self._http.delete(path, headers=self._headers())
-        self._raise_for_status(resp)
+        await self._request("DELETE", path)
 
     async def list_teams(self) -> list[dict]:
         data = await self._get("/me/joinedTeams", params={"$select": "id,displayName,description"})
@@ -394,9 +400,7 @@ class GraphClient:
         return data.get("value", [])
 
     async def _get_bytes(self, path: str) -> bytes:
-        resp = await self._http.get(path, headers=self._headers())
-        self._raise_for_status(resp)
-        return resp.content
+        return (await self._request("GET", path)).content
 
     async def download_hosted_content(
         self,
@@ -405,9 +409,14 @@ class GraphClient:
         channel_id: str | None,
         message_id: str,
         hosted_content_id: str,
+        parent_message_id: str | None = None,
     ) -> bytes:
+        # content inside a channel REPLY lives under /messages/{parent}/replies/{reply}
         if chat_id:
             path = f"/chats/{chat_id}/messages/{message_id}/hostedContents/{hosted_content_id}/$value"
+        elif team_id and channel_id and parent_message_id:
+            path = (f"/teams/{team_id}/channels/{channel_id}/messages/{parent_message_id}"
+                    f"/replies/{message_id}/hostedContents/{hosted_content_id}/$value")
         elif team_id and channel_id:
             path = f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/hostedContents/{hosted_content_id}/$value"
         else:

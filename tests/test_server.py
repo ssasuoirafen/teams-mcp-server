@@ -1,6 +1,6 @@
 """Registration tests for the Teams MCP server.
 
-The server is a module-level FastMCP singleton (`mcp`) with `@mcp.tool()`
+The server is a module-level MCPServer singleton (`mcp`) with `@mcp.tool()`
 decorators applied at import time. Importing the module registers the tool
 closures without calling them; env vars are only read inside `_init()` (via
 `main()`), not at import. We set dummy required env vars defensively before the
@@ -88,9 +88,14 @@ def test_format_message_mentions_passthrough():
     assert _format_message(msg)["mentions"] == [entity]
 
 
-def test_tool_count():
-    names = {tool.name for tool in mcp._tool_manager.list_tools()}
-    assert len(names) == 30
+async def _registered_tool_names() -> set[str]:
+    # Public API on purpose: the private _tool_manager is exactly the kind of internal
+    # that shifts under a major SDK bump.
+    return {tool.name for tool in await mcp.list_tools()}
+
+
+async def test_tool_count():
+    assert len(await _registered_tool_names()) == 30
 
 
 def test_build_message_body_user_mention():
@@ -123,6 +128,5 @@ def test_build_message_body_tag_mention():
     }]
 
 
-def test_tool_names():
-    names = {tool.name for tool in mcp._tool_manager.list_tools()}
-    assert names == EXPECTED_TOOLS
+async def test_tool_names():
+    assert await _registered_tool_names() == EXPECTED_TOOLS

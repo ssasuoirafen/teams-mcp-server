@@ -3,14 +3,23 @@ import os
 import re
 import sys
 import tempfile
+from importlib.metadata import PackageNotFoundError, version
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from teams_mcp.auth import AuthManager
 from teams_mcp.graph import GraphClient
 
-mcp = FastMCP(
+try:
+    _VERSION = version("teams-mcp-server")
+except PackageNotFoundError:  # running from a source tree without an install
+    _VERSION = "0.0.0+dev"
+
+# mcp 2.x defaults version to "" (1.x reported the SDK's own version), so set it
+# explicitly or clients see a blank version in serverInfo.
+mcp = MCPServer(
     "teams-mcp",
+    version=_VERSION,
     instructions=(
         "Microsoft Teams via Microsoft Graph, acting as the signed-in user: anything "
         "sent, edited, deleted or reacted to appears under their name. Use these tools "
@@ -230,7 +239,7 @@ def _format_member(member: dict) -> dict:
 
 
 def _parse_mentions(mentions: list | str | None) -> list[dict] | None:
-    """Accept mentions as list (FastMCP auto-deserialized) or JSON string."""
+    """Accept mentions as list (deserialized by the SDK) or JSON string."""
     if mentions is None:
         return None
     if isinstance(mentions, list):

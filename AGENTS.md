@@ -6,7 +6,7 @@ MCP server for Microsoft Teams via Microsoft Graph API. Delegated auth (device c
 
 ## Stack
 
-Python >=3.12 (dev pin: 3.14 via `.python-version`), `mcp[cli]` (FastMCP API), httpx, msal. Registration-count smoke test in `tests/` (`uv run pytest`); ruff + pytest in the dev group (`uv sync`). CI runs on push/PR via `.github/workflows/ci.yml` (uv sync + pytest + advisory ruff).
+Python >=3.12 (dev pin: 3.14 via `.python-version`), `mcp[cli]` 2.x (`MCPServer`; the major is bounded `<3`, so the next SDK major is a deliberate port rather than a broken fresh install), httpx, msal. Registration-count smoke test in `tests/` (`uv run pytest`); ruff + pytest in the dev group (`uv sync`). CI runs on push/PR via `.github/workflows/ci.yml` (uv sync + pytest + advisory ruff).
 
 ## Commands
 

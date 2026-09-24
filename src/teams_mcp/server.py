@@ -12,16 +12,15 @@ from teams_mcp.graph import GraphClient
 mcp = FastMCP(
     "teams-mcp",
     instructions=(
-        "Microsoft Teams MCP server. Call login first to authenticate.\n"
-        "Channels: list_teams -> list_channels -> list_channel_messages/send_channel_message.\n"
-        "Chats: list_chats -> list_chat_messages/send_chat_message.\n"
-        "Members: list_team_members, list_channel_members, list_chat_members.\n"
-        "Search: search_messages for full-text search across all chats/channels.\n"
-        "Users: get_user to find users, get_user_presence for online status.\n"
-        "Reactions: set_reaction/unset_reaction. Pins: pin_message/unpin_message.\n"
-        "Message ops: update_message, delete_message.\n"
-        "Chat management: create_chat, create_group_chat, mark_chat_read/mark_chat_unread.\n"
-        "Send tools support @mentions via the mentions parameter."
+        "Microsoft Teams via Microsoft Graph, acting as the signed-in user: anything "
+        "sent, edited, deleted or reacted to appears under their name. Use these tools "
+        "for Teams chats and channels - reading, searching, sending, editing and deleting "
+        "messages (with @mentions), thread replies, reactions, pins, read state, creating "
+        "1:1 and group chats, listing teams, channels, members and tags, finding users "
+        "and their presence, and downloading inline images.\n"
+        "The sign-in is cached between sessions. Only when a tool reports \"Not "
+        "authenticated\", call login, give the user the code and URL, and call "
+        "complete_login after they confirm they have signed in."
     ),
 )
 
@@ -458,11 +457,13 @@ async def list_chats(limit: int = 20) -> str:
 # Annotations: readOnlyHint=True, openWorldHint=True
 @mcp.tool()
 async def list_channel_messages(team_id: str, channel_id: str, limit: int = 20) -> str:
-    """List recent messages in a Teams channel.
+    """List recent top-level messages in a Teams channel.
 
-    Use list_teams -> list_channels to get team_id and channel_id.
-    Returns message id, sender, timestamp, and plain text content.
-    System messages are excluded.
+    Use list_teams -> list_channels to get team_id and channel_id. Replies are not
+    included - read a thread with list_thread_replies. Returns up to `limit` messages
+    from one Graph page, each with id, sender, timestamp and plain-text content, plus
+    attachments, hostedContents (inline image ids for download_attachment) and mention
+    entities when present. System messages are excluded.
     """
     _init_if_needed()
     client = _require_auth()
@@ -483,8 +484,11 @@ async def list_thread_replies(
 ) -> str:
     """List replies in a channel message thread.
 
-    Use list_channel_messages to get the parent message_id.
-    Returns the parent message followed by all replies in the thread."""
+    Use list_channel_messages to get the parent message_id (a top-level message).
+    Returns the parent message followed by up to `limit` replies from one Graph page;
+    later replies are not fetched and nothing marks the cut. System messages are
+    excluded.
+    """
     _init_if_needed()
     client = _require_auth()
     parent = await client.get_channel_message(team_id, channel_id, message_id)
@@ -503,9 +507,10 @@ async def list_thread_replies(
 async def list_chat_messages(chat_id: str, limit: int = 20) -> str:
     """List recent messages in a chat.
 
-    Use list_chats to get the chat_id.
-    Returns message id, sender, timestamp, and plain text content.
-    System messages are excluded.
+    Use list_chats to get the chat_id. Returns up to `limit` messages from one Graph
+    page, each with id, sender, timestamp and plain-text content, plus attachments,
+    hostedContents (inline image ids for download_attachment) and mention entities
+    when present. System messages are excluded.
     """
     _init_if_needed()
     client = _require_auth()
@@ -528,6 +533,10 @@ async def send_channel_message(
 
     Use list_teams -> list_channels to get team_id and channel_id.
     For replies to existing messages, use reply_to_channel_message instead.
+
+    content is plain text: newlines are kept and URLs become links; Markdown and HTML
+    show literally. Each mention's "@<name>" must appear in content exactly as given in
+    name, or that mention is dropped without an error.
 
     mentions: optional JSON array of users or team tags to @mention.
     Format: [{"user_id": "...", "name": "Display Name"} | {"tag_id": "...", "name": "TagName"}]
@@ -554,9 +563,13 @@ async def send_chat_message(
     reply_to: optional message ID to reply to (shows as a quoted reply).
     Use list_chat_messages to get the message_id.
 
-    mentions: optional JSON array of users or team tags to @mention.
-    Format: [{"user_id": "...", "name": "Display Name"} | {"tag_id": "...", "name": "TagName"}]
-    Get tag_id from list_team_tags (tags work only in channel messages).
+    content is plain text: newlines are kept and URLs become links; Markdown and HTML
+    show literally. Each mention's "@<name>" must appear in content exactly as given in
+    name, or that mention is dropped without an error.
+
+    mentions: optional JSON array of users to @mention:
+    [{"user_id": "...", "name": "Display Name"}]. Team tags cannot be mentioned in
+    chats. Get user_id from list_chat_members or get_user.
     Use @DisplayName in content where the mention should appear.
     """
     _init_if_needed()
@@ -577,6 +590,10 @@ async def reply_to_channel_message(
     Use list_channel_messages to get the message_id to reply to.
     For new top-level messages, use send_channel_message instead.
 
+    content is plain text: newlines are kept and URLs become links; Markdown and HTML
+    show literally. Each mention's "@<name>" must appear in content exactly as given in
+    name, or that mention is dropped without an error.
+
     mentions: optional JSON array of users or team tags to @mention.
     Format: [{"user_id": "...", "name": "Display Name"} | {"tag_id": "...", "name": "TagName"}]
     Get tag_id from list_team_tags (tags work only in channel messages).
@@ -595,10 +612,13 @@ async def reply_to_channel_message(
 # Annotations: openWorldHint=True
 @mcp.tool()
 async def create_chat(user_email: str, message: str) -> str:
-    """Create a new 1:1 chat with a user and send the first message.
+    """Send a message in the 1:1 chat with a user, creating the chat if needed.
 
-    Use this when no existing chat is found via list_chats.
-    Requires the user's email address (e.g. user@example.com)."""
+    If a 1:1 chat with this user already exists, Graph returns it, so there is no need
+    to look it up with list_chats first. Returns chat_id and the sent message.
+    user_email: the user's sign-in address (userPrincipalName) or user id from
+    get_user; a mail alias that differs from the sign-in address may not resolve.
+    """
     _init_if_needed()
     client = _require_auth()
     me = await client.get_me()
@@ -662,7 +682,9 @@ async def delete_message(
 
     For channel messages: provide team_id + channel_id + message_id.
     For chat messages: provide chat_id + message_id.
-    The message can be recovered by an admin within 7 days.
+    Works on top-level channel messages and on chat messages; channel thread replies
+    are not supported (Graph addresses them under their parent message).
+    Other members then see "This message has been deleted"; this server has no undo tool.
     """
     _init_if_needed()
     client = _require_auth()
@@ -687,7 +709,10 @@ async def update_message(
 
     For channel messages: provide team_id + channel_id + message_id.
     For chat messages: provide chat_id + message_id.
-    Only available in Global cloud (not GCC/DOD).
+    Works on top-level channel messages and on chat messages; channel thread replies
+    are not supported (Graph addresses them under their parent message).
+    Replaces the whole body with plain-text content; @mentions cannot be added on edit
+    and existing ones become plain text. Only available in Global cloud (not GCC/DOD).
     """
     _init_if_needed()
     client = _require_auth()
@@ -712,6 +737,8 @@ async def set_reaction(
 
     For channel messages: provide team_id + channel_id + message_id.
     For chat messages: provide chat_id + message_id.
+    Works on top-level channel messages and on chat messages; channel thread replies
+    are not supported (Graph addresses them under their parent message).
     Common reactions: like, angry, sad, laugh, heart, surprised.
     Custom reactions: any unicode emoji.
     """
@@ -738,6 +765,8 @@ async def unset_reaction(
 
     For channel messages: provide team_id + channel_id + message_id.
     For chat messages: provide chat_id + message_id.
+    Works on top-level channel messages and on chat messages; channel thread replies
+    are not supported (Graph addresses them under their parent message).
     """
     _init_if_needed()
     client = _require_auth()
@@ -752,9 +781,12 @@ async def unset_reaction(
 
 @mcp.tool()
 async def create_group_chat(member_emails: str, topic: str | None = None, message: str | None = None) -> str:
-    """Create a new group chat with multiple users.
+    """Create a new group chat with you and at least two other users.
 
-    member_emails: comma-separated email addresses (e.g. "a@org.com, b@org.com").
+    For one other person use create_chat. Every call creates a new chat; Graph does not
+    reuse an existing group chat with the same members.
+    member_emails: comma-separated sign-in addresses of the other members
+    (e.g. "a@org.com, b@org.com").
     topic: optional chat topic/name.
     message: optional first message to send.
     """
@@ -865,10 +897,13 @@ async def get_user_presence(user_id: str) -> str:
 
 @mcp.tool()
 async def search_messages(query: str, size: int = 25) -> str:
-    """Search for messages across all chats and channels.
+    """Search Teams messages in all chats and channels the signed-in user can see.
 
-    Full-text search on message body and attachments via Microsoft Search API (v1.0).
-    Returns matching messages ranked by relevance with sender and context.
+    Matches message content, including attachments (Microsoft Search). Returns up to
+    `size` hits, newest first, with no further pages. Each hit has a snippet
+    (`summary`, not the full body), sender name and email, timestamp, chatId or
+    channelIdentity, and a webLink. Message ids are not returned - to reply to, react
+    to or delete a hit, find it with list_chat_messages or list_channel_messages.
     """
     _init_if_needed()
     client = _require_auth()
@@ -891,10 +926,12 @@ async def search_messages(query: str, size: int = 25) -> str:
 
 @mcp.tool()
 async def get_user(query: str, limit: int = 10) -> str:
-    """Search for users by name or email.
+    """Find users whose display name or email address starts with `query`.
 
-    Returns user id, display name, email, and job title.
-    Useful for finding user_id needed by other tools (e.g. get_user_presence, create_chat).
+    Prefix match only (Graph startsWith on displayName or mail): a surname or a
+    fragment from the middle of a name finds nothing. Returns up to `limit` users with
+    id, display name, email (mail, else userPrincipalName) and job title. The id is
+    what get_user_presence and mention user_id take; create_chat takes the email.
     """
     _init_if_needed()
     client = _require_auth()
@@ -928,7 +965,10 @@ async def download_attachment(
     /messages/{parent}/replies/{reply}.
     For chat messages: provide chat_id + message_id.
     hosted_content_id: from the hostedContents array in message data.
-    Returns the local file path to the downloaded image.
+    Returns the local file path to the downloaded image. File attachments listed under
+    `attachments` (SharePoint/OneDrive files) cannot be downloaded with this tool. The
+    image is written to the system temp directory on the machine running this server
+    and is not deleted afterwards.
     """
     _init_if_needed()
     client = _require_auth()

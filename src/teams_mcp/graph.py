@@ -1,5 +1,6 @@
 import re
 from collections.abc import AsyncIterator, Callable
+from contextlib import aclosing
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,6 +12,10 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 # Largest $top Graph accepts for chat messages, channel messages and replies
 MAX_PAGE_SIZE = 50
+
+# Most pages one call may fetch. Paging normally stops at `limit` (200 items at most, 50
+# per page); this ends a run of near-empty pages that keep returning @odata.nextLink.
+MAX_PAGES = 20
 
 # Ids go into request paths as they are. An id that is not a single path segment could
 # point the request, and the user's token, at another Graph resource
@@ -99,23 +104,40 @@ class GraphClient:
         await self._request("DELETE", path)
 
     async def _iter_collection(self, path: str, params: dict) -> AsyncIterator[dict]:
-        """Yield a collection's items page by page, following @odata.nextLink."""
+        """Yield a collection's items page by page, following @odata.nextLink.
+
+        Stops with an error rather than fetching more than MAX_PAGES pages, and never
+        follows a link off Graph: the request carries the user's token.
+        """
         data = await self._get(path, params=params)
+        pages = 1
         while True:
             for item in data.get("value", []):
                 yield item
             next_link = data.get("@odata.nextLink")
             if not next_link:
                 return
+            if not next_link.startswith(GRAPH_BASE + "/"):
+                raise GraphApiError(
+                    0, "UnexpectedNextLink", f"@odata.nextLink points outside Graph: {next_link}",
+                )
+            if pages == MAX_PAGES:
+                raise GraphApiError(
+                    0, "TooManyPages",
+                    f"stopped after {MAX_PAGES} pages without reaching the requested limit",
+                )
             data = await self._get(next_link)
+            pages += 1
 
     async def _list_collection(self, path: str, limit: int) -> list[dict]:
         """Up to `limit` items of a collection that pages only by $top and nextLink."""
         items: list[dict] = []
-        async for item in self._iter_collection(path, {"$top": min(limit, MAX_PAGE_SIZE)}):
-            items.append(item)
-            if len(items) == limit:
-                break
+        pager = self._iter_collection(path, {"$top": min(limit, MAX_PAGE_SIZE)})
+        async with aclosing(pager):
+            async for item in pager:
+                items.append(item)
+                if len(items) == limit:
+                    break
         return items
 
     async def list_teams(self) -> list[dict]:
@@ -183,12 +205,26 @@ class GraphClient:
         if before:
             params["$filter"] = f"createdDateTime lt {_odata_datetime(before)}"
         messages: list[dict] = []
-        async for msg in self._iter_collection(f"/chats/{chat_id}/messages", params):
-            if after and datetime.fromisoformat(msg["createdDateTime"]) <= after:
-                break
-            messages.append(msg)
-            if len(messages) == limit:
-                break
+        previous: datetime | None = None
+        pager = self._iter_collection(f"/chats/{chat_id}/messages", params)
+        async with aclosing(pager):
+            async for msg in pager:
+                created = datetime.fromisoformat(msg["createdDateTime"])
+                # The docs do not promise that @odata.nextLink keeps $orderby; if it drops
+                # it, pages come back by lastModifiedDateTime and the cursor would skip or
+                # repeat messages, so fail loudly instead.
+                if previous is not None and created >= previous:
+                    raise GraphApiError(
+                        0, "UnexpectedOrder",
+                        "Graph returned chat messages out of creation order; paging would "
+                        "skip or repeat messages",
+                    )
+                previous = created
+                if after and created <= after:
+                    break
+                messages.append(msg)
+                if len(messages) == limit:
+                    break
         return messages
 
     async def get_chat_message(self, chat_id: str, message_id: str) -> dict:

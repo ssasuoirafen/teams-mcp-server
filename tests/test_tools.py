@@ -20,7 +20,7 @@ os.environ.setdefault("TEAMS_MCP_CLIENT_ID", "test-client")
 
 from teams_mcp import server  # noqa: E402
 from teams_mcp.auth import AuthManager  # noqa: E402
-from teams_mcp.graph import GRAPH_BASE, GraphClient  # noqa: E402
+from teams_mcp.graph import GRAPH_BASE, MAX_PAGES, GraphClient  # noqa: E402
 
 CHAT_ID = (
     "19:5f4e2a10-aaaa-4bbb-8ccc-000000000001_9c8b7a60-dddd-4eee-8fff-000000000002"
@@ -323,13 +323,18 @@ class FakeChatMessages(RecordingGraph):
     """GET /chats/{id}/messages as Graph v1.0 documents it: $top at most 50; $orderby
     lastModifiedDateTime desc (the default) or createdDateTime desc; $filter
     "createdDateTime lt <time>", ignored unless $orderby sorts by createdDateTime; further
-    pages through @odata.nextLink. `page_size` lets a page hold fewer than $top items.
+    pages through @odata.nextLink. `page_size` lets a page hold fewer than $top items;
+    `next_link_drops_orderby` models a nextLink that loses $orderby, which the docs do
+    not rule out.
     """
 
-    def __init__(self, messages: list[dict], page_size: int = 50):
+    def __init__(
+        self, messages: list[dict], page_size: int = 50, next_link_drops_orderby: bool = False,
+    ):
         super().__init__(self._page)
         self.messages = messages
         self.page_size = page_size
+        self.next_link_drops_orderby = next_link_drops_orderby
 
     def _page(self, request: httpx.Request) -> httpx.Response:
         params = request.url.params
@@ -352,9 +357,10 @@ class FakeChatMessages(RecordingGraph):
             "value": items[offset:offset + size],
         }
         if offset + size < len(items):
-            body["@odata.nextLink"] = str(
-                request.url.copy_merge_params({"$skiptoken": str(offset + size)})
-            )
+            next_url = request.url.copy_merge_params({"$skiptoken": str(offset + size)})
+            if self.next_link_drops_orderby:
+                next_url = next_url.copy_remove_param("$orderby")
+            body["@odata.nextLink"] = str(next_url)
         return httpx.Response(200, json=body)
 
 
@@ -828,3 +834,46 @@ async def test_empty_mentions_send_a_plain_message(install, mentions):
 
     assert not result.is_error, text(result)
     assert "mentions" not in json.loads(graph.requests[0].content)
+
+
+async def test_next_link_off_graph_is_not_followed(install):
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "value": [chat_message("2026-10-07T12:00:00.000Z")],
+            "@odata.nextLink": "https://graph.example.net/v1.0/chats/x/messages?$skiptoken=1",
+        })
+
+    graph = RecordingGraph(respond)
+    install(graph)
+
+    result = await call("list_chat_messages", {"chat_id": CHAT_ID, "limit": 5})
+
+    assert result.is_error
+    assert {r.url.host for r in graph.requests} == {"graph.microsoft.com"}
+
+
+async def test_endless_empty_pages_stop_with_an_error(install):
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "value": [],
+            "@odata.nextLink": f"{GRAPH_BASE}/chats/{CHAT_ID}/messages?$skiptoken=again",
+        })
+
+    graph = RecordingGraph(respond)
+    install(graph)
+
+    result = await call("list_chat_messages", {"chat_id": CHAT_ID})
+
+    assert result.is_error
+    assert len(graph.requests) == MAX_PAGES
+
+
+async def test_pages_out_of_creation_order_are_an_error(install):
+    history = every_minute(4)
+    history[0] = chat_message("2026-10-07T08:00:00.000Z", modified="2026-10-07T09:00:00.000Z")
+    install(FakeChatMessages(history, page_size=2, next_link_drops_orderby=True))
+
+    result = await call("list_chat_messages", {"chat_id": CHAT_ID, "limit": 4})
+
+    assert result.is_error
+    assert "order" in text(result)

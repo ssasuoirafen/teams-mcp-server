@@ -14,7 +14,7 @@ MCP server for Microsoft Teams via Microsoft Graph API.
 | `send_channel_message` | Send a message to a channel |
 | `reply_to_channel_message` | Reply to a thread |
 | `list_chats` | List chats |
-| `list_chat_messages` | List messages in a chat |
+| `list_chat_messages` | List messages in a chat, newest first; pages back through history with `before`/`after` and a `next_before` cursor |
 | `send_chat_message` | Send a chat message |
 | `search_messages` | Full-text search across chats and channels |
 | `get_user` | Find a user |

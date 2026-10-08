@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 
 from mcp.server.mcpserver import MCPServer
@@ -38,6 +39,11 @@ mcp = MCPServer(
 
 auth: AuthManager | None = None
 graph: GraphClient | None = None
+
+# Largest `limit` a list tool accepts. Graph returns at most 50 messages per page and the
+# pages are fetched one after another; a longer result also risks exceeding what an MCP
+# client accepts as one tool output, so older history is paged with a cursor instead.
+MAX_LIST_LIMIT = 200
 
 
 def _init():
@@ -89,6 +95,26 @@ def _tool(fn):
             except _ANTICIPATED_ERRORS as exc:
                 raise ToolError(str(exc)) from exc
     return mcp.tool()(wrapper)
+
+
+def _check_limit(limit: int) -> None:
+    if not 1 <= limit <= MAX_LIST_LIMIT:
+        raise ToolError(f"limit must be between 1 and {MAX_LIST_LIMIT}, got {limit}")
+
+
+def _parse_timestamp(name: str, value: str | None) -> datetime | None:
+    """Read an ISO 8601 argument as an aware UTC datetime; no offset means UTC."""
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ToolError(
+            f"{name} must be an ISO 8601 timestamp such as 2026-10-07T12:00:00Z, got {value!r}"
+        ) from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _strip_html(text: str) -> str:
@@ -542,22 +568,34 @@ async def list_thread_replies(
 # Tool: list_chat_messages
 # Annotations: readOnlyHint=True, openWorldHint=True
 @_tool
-async def list_chat_messages(chat_id: str, limit: int = 20) -> str:
-    """List recent messages in a chat.
+async def list_chat_messages(
+    chat_id: str, limit: int = 20, before: str | None = None, after: str | None = None,
+) -> str:
+    """List messages in a chat, newest first, a page at a time.
 
-    Use list_chats to get the chat_id. Returns up to `limit` messages from one Graph
-    page, each with id, sender, timestamp and plain-text content, plus attachments,
-    hostedContents (inline image ids for download_attachment) and mention entities
-    when present. System messages are excluded.
+    Use list_chats to get the chat_id. Returns {"messages": [...], "next_before": ...}
+    with up to `limit` (1-200) messages created after `after` and before `before`: ISO
+    8601 timestamps, both exclusive and optional; one without an offset is read as UTC.
+    For the next older page call again with before=next_before and the same `after`;
+    next_before is null when no older messages are left in that range.
+    Each message has id, sender, createdDateTime and plain-text content, plus
+    attachments, hostedContents (inline image ids for download_attachment) and mention
+    entities when present. System messages are left out, so a page can hold fewer
+    than `limit` messages.
     """
+    _check_limit(limit)
+    before_ts = _parse_timestamp("before", before)
+    after_ts = _parse_timestamp("after", after)
     _init_if_needed()
     client = _require_auth()
-    messages = await client.list_chat_messages(chat_id, limit=limit)
-    result = [
-        _format_message(m)
-        for m in messages
-        if m.get("messageType") == "message"
-    ]
+    raw = await client.list_chat_messages(chat_id, limit=limit, before=before_ts, after=after_ts)
+    # A full page may have older messages behind it. The cursor is the oldest item Graph
+    # returned, system messages included, so the next page starts where this one ended.
+    next_before = raw[-1]["createdDateTime"] if len(raw) == limit else None
+    result = {
+        "messages": [_format_message(m) for m in raw if m.get("messageType") == "message"],
+        "next_before": next_before,
+    }
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

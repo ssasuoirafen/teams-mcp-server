@@ -7,6 +7,9 @@ AuthManager over a fake MSAL app, so no test touches the network or the token ca
 
 import json
 import os
+import re
+import time
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -258,3 +261,229 @@ async def test_tools_keep_their_parameter_schemas():
     assert send.input_schema["required"] == ["chat_id", "content"]
     assert send.description.startswith("Send a message to a Teams chat.")
     assert tools["login"].input_schema["properties"] == {}
+
+
+# --- chat history paging ------------------------------------------------------
+
+USER_ANN = {
+    "@odata.type": "#microsoft.graph.teamworkUserIdentity",
+    "id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5",
+    "displayName": "Ann Lee",
+    "userIdentityType": "aadUser",
+    "tenantId": "2432b57b-0abd-43db-aa7b-16eadd115d34",
+}
+
+
+def chat_message(created: str, *, modified: str | None = None, system: bool = False) -> dict:
+    """A chatMessage as Graph v1.0 returns it; a chat message id is its creation time in ms."""
+    message_id = str(int(datetime.fromisoformat(created).timestamp() * 1000))
+    return {
+        "id": message_id,
+        "replyToId": None,
+        "etag": message_id,
+        "messageType": "systemEventMessage" if system else "message",
+        "createdDateTime": created,
+        "lastModifiedDateTime": modified or created,
+        "lastEditedDateTime": None,
+        "deletedDateTime": None,
+        "subject": None,
+        "summary": None,
+        "chatId": CHAT_ID,
+        "importance": "normal",
+        "locale": "en-us",
+        "webUrl": None,
+        "channelIdentity": None,
+        "policyViolation": None,
+        "eventDetail": {
+            "@odata.type": "#microsoft.graph.membersAddedEventMessageDetail",
+            "visibleHistoryStartDateTime": "0001-01-01T00:00:00Z",
+            "members": [{"id": USER_ANN["id"], "displayName": None, "userIdentityType": "aadUser"}],
+            "initiator": {"application": None, "device": None, "user": USER_ANN},
+        } if system else None,
+        "from": None if system else {"application": None, "device": None, "user": USER_ANN},
+        "body": {
+            "contentType": "html",
+            "content": "<systemEventMessage/>" if system else f"<p>sent at {created}</p>",
+        },
+        "attachments": [],
+        "mentions": [],
+        "reactions": [],
+    }
+
+
+def every_minute(count: int, start: str = "2026-10-07T08:00:00.000Z") -> list[dict]:
+    first = datetime.fromisoformat(start)
+    return [
+        chat_message((first + timedelta(minutes=i)).strftime("%Y-%m-%dT%H:%M:%S.000Z"))
+        for i in range(count)
+    ]
+
+
+class FakeChatMessages(RecordingGraph):
+    """GET /chats/{id}/messages as Graph v1.0 documents it: $top at most 50; $orderby
+    lastModifiedDateTime desc (the default) or createdDateTime desc; $filter
+    "createdDateTime lt <time>", ignored unless $orderby sorts by createdDateTime; further
+    pages through @odata.nextLink. `page_size` lets a page hold fewer than $top items.
+    """
+
+    def __init__(self, messages: list[dict], page_size: int = 50):
+        super().__init__(self._page)
+        self.messages = messages
+        self.page_size = page_size
+
+    def _page(self, request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        top = int(params.get("$top", "20"))
+        if top > 50:
+            return graph_error(400, "BadRequest", "Invalid page size requested.")
+        key = params.get("$orderby", "lastModifiedDateTime desc").split()[0]
+        items = sorted(self.messages, key=lambda m: m[key], reverse=True)
+        if "$filter" in params and key == "createdDateTime":
+            match = re.fullmatch(r"createdDateTime lt (\S+)", params["$filter"])
+            if not match:
+                return graph_error(400, "BadRequest", "Invalid filter clause.")
+            bound = datetime.fromisoformat(match.group(1))
+            items = [m for m in items if datetime.fromisoformat(m["createdDateTime"]) < bound]
+        offset = int(params.get("$skiptoken", "0"))
+        size = min(top, self.page_size)
+        body = {
+            "@odata.context": f"https://graph.microsoft.com/v1.0/$metadata#chats('{CHAT_ID}')/messages",
+            "@odata.count": len(items[offset:offset + size]),
+            "value": items[offset:offset + size],
+        }
+        if offset + size < len(items):
+            body["@odata.nextLink"] = str(
+                request.url.copy_merge_params({"$skiptoken": str(offset + size)})
+            )
+        return httpx.Response(200, json=body)
+
+
+async def chat_page(**arguments) -> dict:
+    result = await call("list_chat_messages", {"chat_id": CHAT_ID, **arguments})
+    assert not result.is_error, text(result)
+    return json.loads(text(result))
+
+
+async def test_chat_page_is_newest_first_by_creation_time(install):
+    reacted_to_late = chat_message("2026-10-07T09:00:00.000Z", modified="2026-10-07T12:30:00.000Z")
+    install(FakeChatMessages([
+        reacted_to_late,
+        chat_message("2026-10-07T10:00:00.000Z"),
+        chat_message("2026-10-07T11:00:00.000Z"),
+    ]))
+
+    page = await chat_page(limit=2)
+
+    assert [m["createdDateTime"] for m in page["messages"]] == [
+        "2026-10-07T11:00:00.000Z",
+        "2026-10-07T10:00:00.000Z",
+    ]
+
+
+async def test_next_before_walks_the_whole_chat_once(install):
+    history = every_minute(7)
+    history.insert(3, chat_message("2026-10-07T08:02:30.000Z", system=True))
+    install(FakeChatMessages(history))
+
+    seen, before = [], None
+    for _ in range(10):  # a cursor that never runs out must not hang the test
+        page = await chat_page(limit=3, **({"before": before} if before else {}))
+        seen += [m["createdDateTime"] for m in page["messages"]]
+        before = page["next_before"]
+        if before is None:
+            break
+
+    assert seen == [
+        "2026-10-07T08:06:00.000Z",
+        "2026-10-07T08:05:00.000Z",
+        "2026-10-07T08:04:00.000Z",
+        "2026-10-07T08:03:00.000Z",
+        "2026-10-07T08:02:00.000Z",
+        "2026-10-07T08:01:00.000Z",
+        "2026-10-07T08:00:00.000Z",
+    ]
+
+
+async def test_after_stops_paging_at_the_bound(install):
+    graph = FakeChatMessages(every_minute(6), page_size=2)
+    install(graph)
+
+    page = await chat_page(limit=10, after="2026-10-07T08:02:00Z")
+
+    assert [m["createdDateTime"] for m in page["messages"]] == [
+        "2026-10-07T08:05:00.000Z",
+        "2026-10-07T08:04:00.000Z",
+        "2026-10-07T08:03:00.000Z",
+    ]
+    assert page["next_before"] is None
+    assert len(graph.requests) == 2
+
+
+async def test_limit_above_one_graph_page_follows_next_link(install):
+    graph = FakeChatMessages(every_minute(120))
+    install(graph)
+
+    page = await chat_page(limit=110)
+
+    assert len(page["messages"]) == 110
+    assert page["messages"][0]["createdDateTime"] == "2026-10-07T09:59:00.000Z"
+    assert page["next_before"] == "2026-10-07T08:10:00.000Z"
+    assert len(graph.requests) == 3
+
+
+@pytest.fixture
+def local_time_not_utc():
+    """Run with a local zone ahead of UTC, so reading a naive time as local time shows up.
+
+    Windows has no time.tzset; there the machine's own zone applies.
+    """
+    if not hasattr(time, "tzset"):
+        yield
+        return
+    previous = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Tashkent"
+    time.tzset()
+    try:
+        yield
+    finally:
+        if previous is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = previous
+        time.tzset()
+
+
+@pytest.mark.parametrize("before", [
+    "2026-10-07T12:00:00Z",
+    "2026-10-07T12:00:00",
+    "2026-10-07T15:00:00+03:00",
+])
+async def test_before_is_exclusive_and_read_as_utc_without_offset(
+    install, local_time_not_utc, before,
+):
+    install(FakeChatMessages([
+        chat_message("2026-10-07T11:59:00.000Z"),
+        chat_message("2026-10-07T12:00:00.000Z"),
+        chat_message("2026-10-07T12:01:00.000Z"),
+    ]))
+
+    page = await chat_page(before=before)
+
+    assert [m["createdDateTime"] for m in page["messages"]] == ["2026-10-07T11:59:00.000Z"]
+
+
+@pytest.mark.parametrize("arguments, named", [
+    ({"limit": 0}, "limit"),
+    ({"limit": server.MAX_LIST_LIMIT + 1}, "limit"),
+    ({"before": "yesterday"}, "before"),
+    ({"after": "10/07/2026"}, "after"),
+])
+async def test_invalid_paging_arguments_are_errors(install, arguments, named):
+    graph = FakeChatMessages(every_minute(3))
+    install(graph)
+
+    result = await call("list_chat_messages", {"chat_id": CHAT_ID, **arguments})
+
+    assert result.is_error
+    assert named in text(result)
+    assert graph.requests == []

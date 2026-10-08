@@ -1,5 +1,6 @@
 import re
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -7,6 +8,14 @@ import httpx
 from teams_mcp.auth import AuthError
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+# Largest $top Graph accepts for chat messages, channel messages and replies
+MAX_PAGE_SIZE = 50
+
+
+def _odata_datetime(value: datetime) -> str:
+    """UTC with milliseconds and a Z suffix, the form Graph's $filter examples use."""
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 class GraphApiError(Exception):
@@ -71,6 +80,17 @@ class GraphClient:
     async def _delete(self, path: str) -> None:
         await self._request("DELETE", path)
 
+    async def _iter_collection(self, path: str, params: dict) -> AsyncIterator[dict]:
+        """Yield a collection's items page by page, following @odata.nextLink."""
+        data = await self._get(path, params=params)
+        while True:
+            for item in data.get("value", []):
+                yield item
+            next_link = data.get("@odata.nextLink")
+            if not next_link:
+                return
+            data = await self._get(next_link)
+
     async def list_teams(self) -> list[dict]:
         data = await self._get("/me/joinedTeams", params={"$select": "id,displayName,description"})
         return data.get("value", [])
@@ -119,12 +139,32 @@ class GraphClient:
             f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}",
         )
 
-    async def list_chat_messages(self, chat_id: str, limit: int = 20) -> list[dict]:
-        data = await self._get(
-            f"/chats/{chat_id}/messages",
-            params={"$top": limit},
-        )
-        return data.get("value", [])
+    async def list_chat_messages(
+        self,
+        chat_id: str,
+        limit: int = 20,
+        before: datetime | None = None,
+        after: datetime | None = None,
+    ) -> list[dict]:
+        """Up to `limit` messages created after `after` and before `before`, newest first.
+
+        Graph filters createdDateTime with `lt` only and ignores $filter unless $orderby
+        sorts by the same property, so `after` is applied here and ends the paging.
+        """
+        params: dict[str, Any] = {
+            "$top": min(limit, MAX_PAGE_SIZE),
+            "$orderby": "createdDateTime desc",
+        }
+        if before:
+            params["$filter"] = f"createdDateTime lt {_odata_datetime(before)}"
+        messages: list[dict] = []
+        async for msg in self._iter_collection(f"/chats/{chat_id}/messages", params):
+            if after and datetime.fromisoformat(msg["createdDateTime"]) <= after:
+                break
+            messages.append(msg)
+            if len(messages) == limit:
+                break
+        return messages
 
     async def get_chat_message(self, chat_id: str, message_id: str) -> dict:
         return await self._get(f"/chats/{chat_id}/messages/{message_id}")

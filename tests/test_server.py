@@ -1,10 +1,10 @@
 """Registration tests for the Teams MCP server.
 
-The server is a module-level MCPServer singleton (`mcp`) with `@mcp.tool()`
-decorators applied at import time. Importing the module registers the tool
-closures without calling them; env vars are only read inside `_init()` (via
-`main()`), not at import. We set dummy required env vars defensively before the
-import so the test stays robust if that ever changes.
+The server is a module-level MCPServer singleton (`mcp`) with `@_tool` decorators
+(a wrapper around `mcp.tool()`) applied at import time. Importing the module
+registers the tool closures without calling them; env vars are only read inside
+`_init()` (via `main()`), not at import. We set dummy required env vars defensively
+before the import so the test stays robust if that ever changes.
 
 This is the executable spec for the tool surface: assert the exact count and
 the exact set of tool names.

@@ -713,9 +713,27 @@ CHANNEL_BASE = f"/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages"
         {"team_id": TEAM_ID, "channel_id": CHANNEL_ID},
     ),
     (
+        {"link": CHANNEL_REPLY_LINK.replace("&parentMessageId=1759820400000", "")},
+        f"{CHANNEL_BASE}/1759838500000",
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID},
+    ),
+    (
         {"chat_id": CHAT_ID, "message_id": "1759838400000"},
         f"/v1.0/chats/{CHAT_ID}/messages/1759838400000",
         {"chat_id": CHAT_ID},
+    ),
+    (
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID, "message_id": "1759820400000"},
+        f"{CHANNEL_BASE}/1759820400000",
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID},
+    ),
+    (
+        {
+            "team_id": TEAM_ID, "channel_id": CHANNEL_ID, "message_id": "1759838500000",
+            "parent_message_id": "1759820400000",
+        },
+        f"{CHANNEL_BASE}/1759820400000/replies/1759838500000",
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID, "parent_message_id": "1759820400000"},
     ),
 ])
 async def test_get_message_finds_it_where_the_link_points(install, arguments, graph_path, location):
@@ -937,3 +955,17 @@ async def test_network_failure_while_starting_login_reaches_client(install, msal
 
     assert result.is_error
     assert "ConnectionError" in text(result)
+
+
+async def test_before_and_after_together_bound_the_page(install):
+    install(FakeChatMessages(every_minute(10), page_size=3))
+
+    page = await chat_page(before="2026-10-07T08:07:00Z", after="2026-10-07T08:02:00Z")
+
+    assert [m["createdDateTime"] for m in page["messages"]] == [
+        "2026-10-07T08:06:00.000Z",
+        "2026-10-07T08:05:00.000Z",
+        "2026-10-07T08:04:00.000Z",
+        "2026-10-07T08:03:00.000Z",
+    ]
+    assert page["next_before"] is None

@@ -723,3 +723,58 @@ async def test_unexpected_failure_stays_a_crash(install):
 
     assert result.is_error
     assert text(result) == "Error executing tool list_teams"
+
+
+@pytest.mark.parametrize("arguments", [
+    # a conversation id that climbs out of /chats into another Graph resource
+    {"link": "https://teams.microsoft.com/l/message/..%2F..%2Fbeta%2Fme%2Fmessages%2FAAMkAD%3F"
+             "/1759838400000"},
+    # a team id that does the same through groupId
+    {"link": "https://teams.microsoft.com/l/message/19%3A4a95f7d8db4c4e7fae857bcebe0623e6"
+             "%40thread.tacv2/1759838500000?groupId=..%2F..%2Fme%3F"
+             "&parentMessageId=1759820400000"},
+    {"chat_id": "../../me/messages?", "message_id": "1759838400000"},
+])
+async def test_ids_cannot_steer_requests_to_other_resources(install, arguments):
+    graph = RecordingGraph()
+    install(graph)
+
+    result = await call("get_message", arguments)
+
+    assert result.is_error
+    assert graph.requests == []
+
+
+async def test_list_tool_ids_cannot_steer_requests(install):
+    graph = FakeChatMessages(every_minute(3))
+    install(graph)
+
+    result = await call("list_chat_messages", {"chat_id": "../../me/messages?"})
+
+    assert result.is_error
+    assert graph.requests == []
+
+
+async def test_link_copied_from_message_html_still_resolves(install):
+    graph = RecordingGraph(lambda request: httpx.Response(
+        200, json=channel_message("2026-10-07T12:00:00.000Z", reply_to=THREAD_ID),
+    ))
+    install(graph)
+
+    result = await call("get_message", {"link": CHANNEL_REPLY_LINK.replace("&", "&amp;")})
+
+    assert not result.is_error, text(result)
+    assert [r.url.path for r in graph.requests] == [
+        f"{CHANNEL_BASE}/1759820400000/replies/1759838500000",
+    ]
+
+
+async def test_channel_link_without_team_is_error(install):
+    graph = RecordingGraph()
+    install(graph)
+
+    result = await call("get_message", {"link": CHANNEL_ROOT_LINK.split("?")[0]})
+
+    assert result.is_error
+    assert "team_id" in text(result)
+    assert graph.requests == []

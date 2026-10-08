@@ -73,6 +73,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 - Argument checks inside a tool raise `ToolError` directly, before any Graph call; `graph.py` and `auth.py` raise their own exceptions and stay unaware of MCP
 - `GraphApiError(status_code, code, message)` - raised by all graph helpers, contains parsed Graph API error JSON
 - 403 errors surface the Graph API message directly (e.g. "Insufficient privileges to complete the operation") - tools work with whatever scopes the user has, missing scopes produce clear errors
+- Ids go into Graph paths unescaped, so `GraphClient._request` refuses any relative path with a `.`/`..` segment or `? # % \` or whitespace (`GraphApiError` code `InvalidId`): an id that is not one path segment could otherwise send the user's token to another Graph resource. `get_message` links come from message content anyone can write, so `_parse_message_link` also requires `groupId` to be a GUID and `parentMessageId` to be digits
 - `AuthError` (`auth.py`) - sign-in missing ("Not authenticated...", from `_require_auth()` or a token provider that returns nothing) or failed (device flow errors from `AuthManager`)
 
 ## Scopes (delegated)

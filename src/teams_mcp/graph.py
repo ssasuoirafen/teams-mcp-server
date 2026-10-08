@@ -12,6 +12,11 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 # Largest $top Graph accepts for chat messages, channel messages and replies
 MAX_PAGE_SIZE = 50
 
+# Ids go into request paths as they are. An id that is not a single path segment could
+# point the request, and the user's token, at another Graph resource
+# (e.g. "../../me/messages?"), so such a path is never sent.
+_UNSAFE_PATH = re.compile(r"(^|/)\.\.?(/|$)|[?#%\\\s]")
+
 
 def _odata_datetime(value: datetime) -> str:
     """UTC with milliseconds and a Z suffix, the form Graph's $filter examples use."""
@@ -53,6 +58,12 @@ class GraphClient:
         raise GraphApiError(resp.status_code, code, f"Graph API error {resp.status_code} ({code}): {message}")
 
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        # absolute URLs are Graph's own @odata.nextLink values, checked by the pager
+        if path.startswith("/") and _UNSAFE_PATH.search(path):
+            raise GraphApiError(
+                0, "InvalidId",
+                f"refusing to call Graph: an id in {path!r} is not a single path segment",
+            )
         try:
             resp = await self._http.request(method, path, headers=self._headers(), **kwargs)
         except httpx.HTTPError as exc:

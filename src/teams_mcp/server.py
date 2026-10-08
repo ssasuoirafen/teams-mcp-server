@@ -1,4 +1,5 @@
 import functools
+import html
 import inspect
 import json
 import os
@@ -120,26 +121,41 @@ def _parse_timestamp(name: str, value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
 def _parse_message_link(link: str) -> tuple[dict[str, str], str]:
     """Split a Teams message link into where the message lives and its id.
 
     The path is /l/message/<chat or channel id>/<message id>. A channel link carries the
     team as groupId and the thread root as parentMessageId (the message's own id for a
-    root message); a chat link has neither.
+    root message); a chat link has neither. Links come from message content, which
+    anyone in a chat can write, so every id is checked before it reaches a Graph path.
     """
-    url = urlsplit(link.strip())
-    match = re.fullmatch(r"/l/message/([^/]+)/(\d+)/?", url.path)
+    # a link copied out of message content keeps its HTML escaping (&amp;)
+    url = urlsplit(html.unescape(link.strip()))
+    match = re.fullmatch(r"/l/message/([^/]+)/([0-9]+)/?", url.path)
     if not match:
         raise ToolError(
             "link must be a Teams message link such as https://teams.microsoft.com/l/message/"
             f"<chat or channel id>/<message id>, got {link!r}"
         )
     conversation_id, message_id = unquote(match.group(1)), match.group(2)
+    if "/" in conversation_id:
+        raise ToolError(f"link has an invalid chat or channel id: {link!r}")
     query = parse_qs(url.query)
     if "groupId" not in query:
+        if conversation_id.endswith(("@thread.tacv2", "@thread.skype")):
+            raise ToolError(
+                "This channel link has no groupId (team). Pass team_id, channel_id and "
+                "message_id instead."
+            )
         return {"chat_id": conversation_id}, message_id
-    location = {"team_id": query["groupId"][0], "channel_id": conversation_id}
+    team_id = query["groupId"][0]
     parent = query.get("parentMessageId", [message_id])[0]
+    if not _GUID.fullmatch(team_id) or not re.fullmatch(r"[0-9]+", parent):
+        raise ToolError(f"link has an invalid groupId or parentMessageId: {link!r}")
+    location = {"team_id": team_id, "channel_id": conversation_id}
     if parent != message_id:
         location["parent_message_id"] = parent
     return location, message_id

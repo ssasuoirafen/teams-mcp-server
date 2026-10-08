@@ -45,7 +45,7 @@ class AuthManager:
         self.client_id = client_id
         self.scopes = scopes or DEFAULT_SCOPES
         self._cache_dir = Path(cache_dir or os.path.expanduser("~/.teams-mcp"))
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._cache_path = self._cache_dir / "token_cache.json"
         self._cache = msal.SerializableTokenCache()
         self._cache_text: str | None = None  # the file content this process last read or wrote
@@ -71,9 +71,19 @@ class AuthManager:
         return True
 
     def _save_cache(self):
-        if self._cache.has_state_changed:
-            self._cache_text = self._cache.serialize()
-            self._cache_path.write_text(self._cache_text, encoding="utf-8")
+        if not self._cache.has_state_changed:
+            return
+        text = self._cache.serialize()
+        # The server and `teams-mcp login` share this file, so write a temp file and swap
+        # it in: a reader never sees it half written. It holds refresh tokens, so only
+        # the owner may read it.
+        tmp_path = self._cache_path.with_name(self._cache_path.name + ".tmp")
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+            tmp.write(text)
+        os.chmod(tmp_path, 0o600)  # in case a leftover temp file had a wider mode
+        os.replace(tmp_path, self._cache_path)
+        self._cache_text = text
 
     def get_token(self) -> str | None:
         token = self._silent_token()

@@ -1089,3 +1089,13 @@ def test_running_server_picks_up_a_terminal_login(cli, msal_app, capsys, cache_b
     assert run_cli("login") == 0
 
     assert running_server.get_token() == "token-from-refresh"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_token_cache_is_readable_only_by_its_owner(cli, msal_app):
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    cache_file = os.path.join(os.environ["HOME"], ".teams-mcp", "token_cache.json")
+    assert os.stat(cache_file).st_mode & 0o777 == 0o600

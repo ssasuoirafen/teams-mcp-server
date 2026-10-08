@@ -508,8 +508,10 @@ def channel_message(created: str, *, reply_to: str | None = None) -> dict:
 
 
 def channel_history(count: int, *, reply_to: str | None = None) -> list[dict]:
+    """Messages one minute apart, newest first as Graph lists them."""
     return [
-        channel_message(m["createdDateTime"], reply_to=reply_to) for m in every_minute(count)
+        channel_message(m["createdDateTime"], reply_to=reply_to)
+        for m in reversed(every_minute(count))
     ]
 
 

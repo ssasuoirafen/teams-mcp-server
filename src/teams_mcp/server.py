@@ -621,9 +621,9 @@ async def list_thread_replies(
     """List replies in a channel message thread.
 
     Use list_channel_messages to get the parent message_id (a top-level message).
-    Returns the parent message followed by up to `limit` (1-200) replies; replies
-    beyond `limit` are not fetched and nothing marks the cut. System messages are
-    excluded.
+    Returns the parent message followed by up to `limit` (1-200) replies, newest first.
+    In a longer thread the oldest replies, the ones right after the parent, are left
+    out and nothing marks the cut. System messages are excluded.
     """
     _check_limit(limit)
     _init_if_needed()
@@ -650,7 +650,9 @@ async def list_chat_messages(
     with up to `limit` (1-200) messages created after `after` and before `before`: ISO
     8601 timestamps, both exclusive and optional; one without an offset is read as UTC.
     For the next older page call again with before=next_before and the same `after`;
-    next_before is null when no older messages are left in that range.
+    next_before is null when no older messages are left in that range. Pages come
+    newest first, so `after` alone returns the newest messages of the chat, not the
+    ones right after that time.
     Each message has id, sender, createdDateTime and plain-text content, plus
     attachments, hostedContents (inline image ids for download_attachment) and mention
     entities when present. System messages are left out, so a page can hold fewer
@@ -691,8 +693,10 @@ async def get_message(
     parent_message_id, the thread root id, for a reply in a channel thread).
     Returns where the message lives (chat_id, or team_id + channel_id and, for a reply,
     parent_message_id) and the message with id, sender, createdDateTime and content.
-    To read around a chat message, pass its createdDateTime to list_chat_messages as
-    before or after.
+    To see what led up to a chat message, call list_chat_messages with
+    before=<its createdDateTime>. Pages come newest first, so for what followed pass
+    after=<its createdDateTime> together with a before a little later (an hour on, for
+    example); after alone returns the newest messages of the chat.
     """
     if link:
         location, message_id = _parse_message_link(link)

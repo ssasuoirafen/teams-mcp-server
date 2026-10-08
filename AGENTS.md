@@ -42,6 +42,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 - `list_teams`, `list_channels`, `list_chats`
 - `list_channel_messages`, `list_chat_messages`, `list_thread_replies`
 - `list_chat_messages` pages through history: `before`/`after` (ISO 8601, exclusive), `limit` up to `MAX_LIST_LIMIT` across several Graph pages, and it returns `{"messages": [...], "next_before": ...}` - pass `next_before` as `before` for the next older page
+- `list_channel_messages` and `list_thread_replies` also follow `@odata.nextLink` up to `MAX_LIST_LIMIT` but have no cursor: Graph takes only `$top` there, and channel messages are sorted by the latest activity in the whole thread, so a timestamp cursor cannot work
 - `list_team_members`, `list_channel_members`, `list_chat_members`
 - `list_team_tags` (tag ids for @tag mentions; needs `TeamworkTag.Read`)
 - `list_pinned_messages`

@@ -487,3 +487,104 @@ async def test_invalid_paging_arguments_are_errors(install, arguments, named):
     assert result.is_error
     assert named in text(result)
     assert graph.requests == []
+
+
+# --- channel messages and thread replies beyond one page -----------------------
+
+TEAM_ID = "fbe2bf47-16c8-47cf-b4a5-4b9b187c508b"
+CHANNEL_ID = "19:4a95f7d8db4c4e7fae857bcebe0623e6@thread.tacv2"
+THREAD_ID = "1759820400000"
+
+
+def channel_message(created: str, *, reply_to: str | None = None) -> dict:
+    """A channel chatMessage as Graph v1.0 returns it (replies carry replyToId)."""
+    message = chat_message(created)
+    message.update({
+        "replyToId": reply_to,
+        "chatId": None,
+        "channelIdentity": {"teamId": TEAM_ID, "channelId": CHANNEL_ID},
+    })
+    return message
+
+
+def channel_history(count: int, *, reply_to: str | None = None) -> list[dict]:
+    return [
+        channel_message(m["createdDateTime"], reply_to=reply_to) for m in every_minute(count)
+    ]
+
+
+class FakeChannel(RecordingGraph):
+    """Channel endpoints as Graph v1.0 documents them: the message and reply lists take
+    only $top (at most 50) and page through @odata.nextLink; one message by id."""
+
+    def __init__(self, messages: list[dict], replies: list[dict] | None = None):
+        super().__init__(self._route)
+        self.messages = messages
+        self.replies = replies or []
+
+    def _route(self, request: httpx.Request) -> httpx.Response:
+        base = f"/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages"
+        path = request.url.path
+        if path == base:
+            return self._page(request, self.messages)
+        if path == f"{base}/{THREAD_ID}/replies":
+            return self._page(request, self.replies)
+        if path == f"{base}/{THREAD_ID}":
+            return httpx.Response(200, json=channel_message("2026-10-07T07:00:00.000Z"))
+        return graph_error(404, "NotFound", "Resource not found.")
+
+    @staticmethod
+    def _page(request: httpx.Request, items: list[dict]) -> httpx.Response:
+        params = request.url.params
+        top = int(params.get("$top", "20"))
+        if top > 50:
+            return graph_error(400, "BadRequest", "Invalid page size requested.")
+        offset = int(params.get("$skiptoken", "0"))
+        body = {"value": items[offset:offset + top]}
+        if offset + top < len(items):
+            body["@odata.nextLink"] = str(
+                request.url.copy_merge_params({"$skiptoken": str(offset + top)})
+            )
+        return httpx.Response(200, json=body)
+
+
+async def test_channel_messages_beyond_one_graph_page(install):
+    graph = FakeChannel(channel_history(80))
+    install(graph)
+
+    result = await call("list_channel_messages", {
+        "team_id": TEAM_ID, "channel_id": CHANNEL_ID, "limit": 70,
+    })
+
+    assert not result.is_error, text(result)
+    assert len(json.loads(text(result))) == 70
+    assert len(graph.requests) == 2
+
+
+async def test_thread_replies_beyond_one_graph_page(install):
+    install(FakeChannel([], channel_history(65, reply_to=THREAD_ID)))
+
+    result = await call("list_thread_replies", {
+        "team_id": TEAM_ID, "channel_id": CHANNEL_ID, "message_id": THREAD_ID, "limit": 60,
+    })
+
+    assert not result.is_error, text(result)
+    thread = json.loads(text(result))
+    assert thread[0]["createdDateTime"] == "2026-10-07T07:00:00.000Z"
+    assert len(thread) == 1 + 60
+
+
+@pytest.mark.parametrize("tool, arguments", [
+    ("list_channel_messages", {"team_id": TEAM_ID, "channel_id": CHANNEL_ID}),
+    ("list_thread_replies", {"team_id": TEAM_ID, "channel_id": CHANNEL_ID, "message_id": THREAD_ID}),
+])
+@pytest.mark.parametrize("limit", [0, server.MAX_LIST_LIMIT + 1])
+async def test_channel_list_limit_out_of_range_is_error(install, tool, arguments, limit):
+    graph = FakeChannel(channel_history(3), channel_history(3, reply_to=THREAD_ID))
+    install(graph)
+
+    result = await call(tool, {**arguments, "limit": limit})
+
+    assert result.is_error
+    assert "limit" in text(result)
+    assert graph.requests == []

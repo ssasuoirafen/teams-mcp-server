@@ -91,6 +91,15 @@ class GraphClient:
                 return
             data = await self._get(next_link)
 
+    async def _list_collection(self, path: str, limit: int) -> list[dict]:
+        """Up to `limit` items of a collection that pages only by $top and nextLink."""
+        items: list[dict] = []
+        async for item in self._iter_collection(path, {"$top": min(limit, MAX_PAGE_SIZE)}):
+            items.append(item)
+            if len(items) == limit:
+                break
+        return items
+
     async def list_teams(self) -> list[dict]:
         data = await self._get("/me/joinedTeams", params={"$select": "id,displayName,description"})
         return data.get("value", [])
@@ -116,21 +125,19 @@ class GraphClient:
         )
         return data.get("value", [])
 
-    async def list_channel_messages(self, team_id: str, channel_id: str, limit: int = 20) -> list[dict]:
-        data = await self._get(
-            f"/teams/{team_id}/channels/{channel_id}/messages",
-            params={"$top": limit},
+    async def list_channel_messages(
+        self, team_id: str, channel_id: str, limit: int = 20,
+    ) -> list[dict]:
+        return await self._list_collection(
+            f"/teams/{team_id}/channels/{channel_id}/messages", limit,
         )
-        return data.get("value", [])
 
     async def list_thread_replies(
         self, team_id: str, channel_id: str, message_id: str, limit: int = 20
     ) -> list[dict]:
-        data = await self._get(
-            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
-            params={"$top": limit},
+        return await self._list_collection(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies", limit,
         )
-        return data.get("value", [])
 
     async def get_channel_message(
         self, team_id: str, channel_id: str, message_id: str

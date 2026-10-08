@@ -524,11 +524,14 @@ async def list_channel_messages(team_id: str, channel_id: str, limit: int = 20) 
     """List recent top-level messages in a Teams channel.
 
     Use list_teams -> list_channels to get team_id and channel_id. Replies are not
-    included - read a thread with list_thread_replies. Returns up to `limit` messages
-    from one Graph page, each with id, sender, timestamp and plain-text content, plus
-    attachments, hostedContents (inline image ids for download_attachment) and mention
-    entities when present. System messages are excluded.
+    included - read a thread with list_thread_replies. Returns up to `limit` (1-200)
+    messages, the threads with the latest activity first (a new reply moves its thread
+    up); there is no cursor for older ones. Each message has id, sender, timestamp and
+    plain-text content, plus attachments, hostedContents (inline image ids for
+    download_attachment) and mention entities when present. System messages are
+    excluded.
     """
+    _check_limit(limit)
     _init_if_needed()
     client = _require_auth()
     messages = await client.list_channel_messages(team_id, channel_id, limit=limit)
@@ -549,10 +552,11 @@ async def list_thread_replies(
     """List replies in a channel message thread.
 
     Use list_channel_messages to get the parent message_id (a top-level message).
-    Returns the parent message followed by up to `limit` replies from one Graph page;
-    later replies are not fetched and nothing marks the cut. System messages are
+    Returns the parent message followed by up to `limit` (1-200) replies; replies
+    beyond `limit` are not fetched and nothing marks the cut. System messages are
     excluded.
     """
+    _check_limit(limit)
     _init_if_needed()
     client = _require_auth()
     parent = await client.get_channel_message(team_id, channel_id, message_id)

@@ -73,7 +73,6 @@ def install(monkeypatch):
         graph._http = httpx.AsyncClient(base_url=GRAPH_BASE, transport=httpx.MockTransport(handler))
         monkeypatch.setattr(server, "auth", auth if auth is not None else StubAuth())
         monkeypatch.setattr(server, "graph", graph)
-        monkeypatch.setattr(server, "_pending_flow", None)
         return graph
 
     return _install
@@ -148,15 +147,6 @@ async def test_group_chat_with_one_other_member_is_error(install):
 
     assert result.is_error
     assert "at least 2" in text(result)
-
-
-async def test_complete_login_without_pending_login_is_error(install):
-    install(RecordingGraph())
-
-    result = await call("complete_login")
-
-    assert result.is_error
-    assert "login" in text(result)
 
 
 CACHED_ACCOUNT = {
@@ -311,38 +301,6 @@ def msal_app(monkeypatch, tmp_path):
     return _make
 
 
-async def test_failed_device_flow_reason_reaches_client(install, msal_app):
-    install(RecordingGraph(), auth=msal_app(oauth_error(
-        "invalid_client",
-        "AADSTS7000218: The request body must contain the following parameter: "
-        "'client_assertion' or 'client_secret'.",
-        7000218,
-    )))
-
-    result = await call("login")
-
-    assert result.is_error
-    assert "AADSTS7000218" in text(result)
-
-
-async def test_failed_sign_in_reason_reaches_client(install, msal_app):
-    install(RecordingGraph(), auth=msal_app(DEVICE_FLOW, oauth_error(
-        "expired_token",
-        "AADSTS70020: The provided value for the input parameter 'device_code' is not valid. "
-        "This device code has expired.",
-        70020,
-    )))
-
-    started = await call("login")
-    assert not started.is_error
-    assert json.loads(text(started))["user_code"] == "F7KQ2XRTN"
-
-    result = await call("complete_login")
-
-    assert result.is_error
-    assert "AADSTS70020" in text(result)
-
-
 async def test_tools_keep_their_parameter_schemas():
     tools = {tool.name: tool for tool in await server.mcp.list_tools()}
 
@@ -350,7 +308,16 @@ async def test_tools_keep_their_parameter_schemas():
     assert set(send.input_schema["properties"]) == {"chat_id", "content", "mentions", "reply_to"}
     assert send.input_schema["required"] == ["chat_id", "content"]
     assert send.description.startswith("Send a message to a Teams chat.")
-    assert tools["login"].input_schema["properties"] == {}
+
+
+def test_sync_tool_is_refused_at_registration():
+    """@_tool wraps async functions only; a sync one would fail on every call instead."""
+
+    def sync_tool() -> str:
+        return "never registered"
+
+    with pytest.raises(TypeError):
+        server._tool(sync_tool)
 
 
 # --- chat history paging ------------------------------------------------------
@@ -1005,15 +972,6 @@ async def test_network_failure_while_refreshing_sign_in_reaches_client(install, 
     assert "Not authenticated" not in text(result)
 
 
-async def test_network_failure_while_starting_login_reaches_client(install, msal_app):
-    install(RecordingGraph(), auth=msal_app(DEVICE_FLOW, network_error=ENTRA_UNREACHABLE))
-
-    result = await call("login")
-
-    assert result.is_error
-    assert "ConnectionError" in text(result)
-
-
 async def test_before_and_after_together_bound_the_page(install):
     install(FakeChatMessages(every_minute(10), page_size=3))
 
@@ -1099,3 +1057,24 @@ def test_token_cache_is_readable_only_by_its_owner(cli, msal_app):
 
     cache_file = os.path.join(os.environ["HOME"], ".teams-mcp", "token_cache.json")
     assert os.stat(cache_file).st_mode & 0o777 == 0o600
+
+
+def test_terminal_login_with_an_expired_code_exits_with_the_reason(cli, msal_app, capsys):
+    msal_app(DEVICE_FLOW, oauth_error(
+        "expired_token",
+        "AADSTS70020: The provided value for the input parameter 'device_code' is not valid. "
+        "This device code has expired.",
+        70020,
+    ))
+
+    assert run_cli("login") == 1
+
+    assert "AADSTS70020" in capsys.readouterr().err
+
+
+def test_terminal_login_without_network_exits_with_the_reason(cli, msal_app, capsys):
+    msal_app(DEVICE_FLOW, network_error=ENTRA_UNREACHABLE)
+
+    assert run_cli("login") == 1
+
+    assert "ConnectionError" in capsys.readouterr().err

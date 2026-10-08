@@ -19,9 +19,6 @@ from teams_mcp.graph import GraphClient  # noqa: E402
 from teams_mcp.server import _format_message, mcp  # noqa: E402
 
 EXPECTED_TOOLS = {
-    # auth
-    "login",
-    "complete_login",
     # read
     "list_teams",
     "list_channels",
@@ -96,7 +93,7 @@ async def _registered_tool_names() -> set[str]:
 
 
 async def test_tool_count():
-    assert len(await _registered_tool_names()) == 31
+    assert len(await _registered_tool_names()) == 29
 
 
 def test_build_message_body_user_mention():

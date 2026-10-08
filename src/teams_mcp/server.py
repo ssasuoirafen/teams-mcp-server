@@ -37,8 +37,7 @@ mcp = MCPServer(
         "The sign-in is cached between sessions. Only when a tool reports \"Not "
         "authenticated\", ask the user to run `teams-mcp login` in a terminal (the "
         "command that starts this server, with `login` appended) and retry once they have "
-        "signed in. If they cannot use a terminal, call login, give the user the code and "
-        "URL, and call complete_login after they confirm they have signed in."
+        "signed in; the server picks up the sign-in without a restart."
     ),
 )
 
@@ -85,22 +84,18 @@ _ANTICIPATED_ERRORS = (AuthError, GraphApiError)
 
 
 def _tool(fn):
-    """Register fn as an MCP tool whose anticipated failures reach the client as text."""
-    if inspect.iscoroutinefunction(fn):
-        @functools.wraps(fn)
-        async def wrapper(*args, **kwargs):
-            try:
-                return await fn(*args, **kwargs)
-            except _ANTICIPATED_ERRORS as exc:
-                raise ToolError(str(exc)) from exc
-    else:
-        # sync tools stay sync, so the SDK runs them in a worker thread (complete_login blocks)
-        @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
-            try:
-                return fn(*args, **kwargs)
-            except _ANTICIPATED_ERRORS as exc:
-                raise ToolError(str(exc)) from exc
+    """Register async fn as an MCP tool whose anticipated failures reach the client as text."""
+    if not inspect.iscoroutinefunction(fn):
+        # the wrapper awaits fn, so a sync tool would fail on every call
+        raise TypeError(f"tool {fn.__name__} must be async")
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except _ANTICIPATED_ERRORS as exc:
+            raise ToolError(str(exc)) from exc
+
     return mcp.tool()(wrapper)
 
 
@@ -430,59 +425,6 @@ def _format_message(msg: dict) -> dict:
     if mentions:
         result["mentions"] = mentions  # raw entities - ids are needed for @mention replies
     return result
-
-
-# Global to hold pending device flow between login and complete_login calls
-_pending_flow: dict | None = None
-
-
-# Tool: login
-# Annotations: openWorldHint=True
-@_tool
-def login() -> str:
-    """Start authentication with Microsoft Teams via device code flow.
-
-    If already authenticated, returns current account info.
-    Otherwise, returns a device code and URL. The user must open the URL in a browser
-    and enter the code. Then call complete_login to finish authentication."""
-    global _pending_flow
-    _init_if_needed()
-    if auth.is_authenticated():
-        return json.dumps(
-            {"status": "already_authenticated", "account": auth.username() or "unknown"},
-            ensure_ascii=False,
-            indent=2,
-        )
-    _pending_flow = auth.login()
-    return json.dumps(
-        {
-            "status": "action_required",
-            "message": _pending_flow.get("message", ""),
-            "user_code": _pending_flow.get("user_code", ""),
-            "verification_uri": _pending_flow.get("verification_uri", ""),
-            "instructions": "Open the URL, enter the code, then call complete_login.",
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
-
-
-# Tool: complete_login
-# Annotations: openWorldHint=True
-@_tool
-def complete_login() -> str:
-    """Complete the device code authentication after the user has entered the code in the browser.
-
-    Call this AFTER the user has opened the URL from login and entered the device code.
-    Blocks until authentication completes (up to 15 minutes)."""
-    global _pending_flow
-    _init_if_needed()
-    if _pending_flow is None:
-        raise ToolError("No pending login. Call login first.")
-    flow = _pending_flow
-    _pending_flow = None
-    result = auth.complete_login(flow)
-    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 # Tool: list_teams

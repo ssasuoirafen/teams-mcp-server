@@ -6,7 +6,6 @@ MCP server for Microsoft Teams via Microsoft Graph API.
 
 | Tool | Description |
 |------|-------------|
-| `login` / `complete_login` | Authenticate via device code flow from the MCP client (fallback for `teams-mcp login`) |
 | `list_teams` | List joined teams |
 | `list_channels` | List channels in a team |
 | `list_channel_messages` | List messages in a channel |
@@ -81,8 +80,6 @@ uvx --from git+https://github.com/ssasuoirafen/teams-mcp-server teams-mcp login
 ```
 
 It prints a URL and a device code. Open the URL, enter the code and sign in; the command then prints the account. The token is cached in `~/.teams-mcp/token_cache.json` and renewed silently. A running server picks up the new sign-in on its next tool call, with no restart.
-
-Without a terminal, the `login` tool does the same from the MCP client: it returns the URL and code, and `complete_login` finishes the sign-in.
 
 ## Development
 

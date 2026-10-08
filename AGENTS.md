@@ -37,9 +37,9 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 ## Tools
 
 ### Auth
-- Primary: `teams-mcp login` in a terminal (`main()` subcommand) - device code printed to the terminal; it writes the token cache the server reads
-- `login` / `complete_login` - the same device code flow from the MCP client (two-phase), for when there is no terminal
-- "Not authenticated" (`auth.NOT_AUTHENTICATED`) points the agent at the terminal command first; the server instructions key off that prefix
+- No sign-in tools: the only way in is `teams-mcp login` in a terminal (`main()` subcommand). It prints a device code and writes the token cache the server reads. The agent never relays a code
+- "Not authenticated" (`auth.NOT_AUTHENTICATED`) tells the agent to ask the user to run that command; the server instructions key off that prefix
+- All tools are async: `@_tool` refuses a sync function at registration
 
 ### Read
 - `list_teams`, `list_channels`, `list_chats`

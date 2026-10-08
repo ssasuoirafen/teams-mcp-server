@@ -15,8 +15,8 @@ class AuthError(Exception):
 
 # The server instructions key off "Not authenticated", so keep that prefix.
 NOT_AUTHENTICATED = (
-    "Not authenticated. The user can sign in by running `teams-mcp login` in a terminal; "
-    "otherwise call the login tool."
+    "Not authenticated. Ask the user to run `teams-mcp login` in a terminal (the command "
+    "that starts this server, with `login` appended), then retry."
 )
 
 

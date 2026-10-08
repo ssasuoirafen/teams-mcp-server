@@ -588,3 +588,43 @@ async def test_channel_list_limit_out_of_range_is_error(install, tool, arguments
     assert result.is_error
     assert "limit" in text(result)
     assert graph.requests == []
+
+
+# --- mentions ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mentions", [
+    "@Ann Lee",
+    '{"user_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5", "name": "Ann Lee"}',
+    [{"user_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5"}],
+    [{"name": "Ann Lee"}],
+    [{"user_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5", "tag_id": "TAG1", "name": "Ann Lee"}],
+])
+async def test_malformed_mentions_are_rejected_before_sending(install, mentions):
+    graph = RecordingGraph()
+    install(graph)
+
+    result = await call("send_chat_message", {
+        "chat_id": CHAT_ID, "content": "ping @Ann Lee", "mentions": mentions,
+    })
+
+    assert result.is_error
+    assert "mentions" in text(result)
+    assert graph.requests == []
+
+
+async def test_mentions_as_json_string_are_sent(install):
+    graph = RecordingGraph(lambda request: httpx.Response(
+        201, json=chat_message("2026-10-08T09:00:00.000Z"),
+    ))
+    install(graph)
+
+    result = await call("send_chat_message", {
+        "chat_id": CHAT_ID,
+        "content": "ping @Ann Lee",
+        "mentions": '[{"user_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5", "name": "Ann Lee"}]',
+    })
+
+    assert not result.is_error, text(result)
+    sent = json.loads(graph.requests[0].content)
+    assert sent["mentions"][0]["mentioned"]["user"]["id"] == "8b081ef6-4792-4def-b2c9-c363a1bf41d5"

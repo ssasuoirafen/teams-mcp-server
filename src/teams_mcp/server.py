@@ -293,16 +293,35 @@ def _format_member(member: dict) -> dict:
     }
 
 
+_MENTION_SHAPE = '{"user_id": "...", "name": "..."} or {"tag_id": "...", "name": "..."}'
+
+
 def _parse_mentions(mentions: list | str | None) -> list[dict] | None:
-    """Accept mentions as list (deserialized by the SDK) or JSON string."""
+    """Accept mentions as list (deserialized by the SDK) or JSON string.
+
+    Anything malformed is an error before sending: a message cannot gain mentions later
+    (update_message turns them into plain text).
+    """
     if mentions is None:
         return None
-    if isinstance(mentions, list):
-        return mentions
-    try:
-        return json.loads(mentions)
-    except (json.JSONDecodeError, TypeError):
-        return None
+    if isinstance(mentions, str):
+        try:
+            mentions = json.loads(mentions)
+        except json.JSONDecodeError as exc:
+            raise ToolError(f"mentions is not valid JSON ({exc}); expected a list of "
+                            f"{_MENTION_SHAPE}") from None
+    if not isinstance(mentions, list):
+        raise ToolError(f"mentions must be a list of {_MENTION_SHAPE}")
+    for i, mention in enumerate(mentions):
+        valid = (
+            isinstance(mention, dict)
+            and isinstance(mention.get("name"), str)
+            and mention["name"] != ""
+            and bool(mention.get("user_id")) != bool(mention.get("tag_id"))
+        )
+        if not valid:
+            raise ToolError(f"mentions[{i}] must be {_MENTION_SHAPE}, got {json.dumps(mention)}")
+    return mentions
 
 
 def _format_attachments(attachments: list) -> list[dict]:

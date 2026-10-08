@@ -1,3 +1,4 @@
+import argparse
 import functools
 import html
 import inspect
@@ -13,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from teams_mcp.auth import AuthError, AuthManager
+from teams_mcp.auth import NOT_AUTHENTICATED, AuthError, AuthManager
 from teams_mcp.graph import GraphApiError, GraphClient
 
 try:
@@ -34,8 +35,10 @@ mcp = MCPServer(
         "1:1 and group chats, listing teams, channels, members and tags, finding users "
         "and their presence, and downloading inline images.\n"
         "The sign-in is cached between sessions. Only when a tool reports \"Not "
-        "authenticated\", call login, give the user the code and URL, and call "
-        "complete_login after they confirm they have signed in."
+        "authenticated\", ask the user to run `teams-mcp login` in a terminal (the "
+        "command that starts this server, with `login` appended) and retry once they have "
+        "signed in. If they cannot use a terminal, call login, give the user the code and "
+        "URL, and call complete_login after they confirm they have signed in."
     ),
 )
 
@@ -69,7 +72,7 @@ def _init_if_needed():
 
 def _require_auth() -> GraphClient:
     if graph is None or not auth.is_authenticated():
-        raise AuthError("Not authenticated. Call the login tool first.")
+        raise AuthError(NOT_AUTHENTICATED)
     return graph
 
 
@@ -445,10 +448,8 @@ def login() -> str:
     global _pending_flow
     _init_if_needed()
     if auth.is_authenticated():
-        accounts = auth._app.get_accounts()
-        username = accounts[0].get("username") if accounts else "unknown"
         return json.dumps(
-            {"status": "already_authenticated", "account": username},
+            {"status": "already_authenticated", "account": auth.username() or "unknown"},
             ensure_ascii=False,
             indent=2,
         )
@@ -1195,8 +1196,42 @@ async def download_attachment(
     return json.dumps({"path": path, "size": len(data)}, ensure_ascii=False, indent=2)
 
 
-def main():
+def _login_in_terminal() -> int:
+    """Device code sign-in on the terminal; it writes the cache the server reads."""
+    try:
+        if auth.is_authenticated():
+            print(f"Already signed in as {auth.username()}.")
+            return 0
+        flow = auth.login()
+        print(flow["message"], flush=True)
+        result = auth.complete_login(flow)
+    except AuthError as exc:
+        print(f"teams-mcp login: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("teams-mcp login: cancelled", file=sys.stderr)
+        return 130
+    print(f"Signed in as {result['account']}.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="teams-mcp",
+        description=(
+            "MCP server for Microsoft Teams over stdio. Needs TEAMS_MCP_TENANT_ID and "
+            "TEAMS_MCP_CLIENT_ID (TEAMS_MCP_SCOPES is optional)."
+        ),
+    )
+    commands = parser.add_subparsers(dest="command")
+    commands.add_parser(
+        "login",
+        help="sign in with a device code in this terminal; a running server picks it up",
+    )
+    args = parser.parse_args(argv)
     _init()
+    if args.command == "login":
+        raise SystemExit(_login_in_terminal())
     mcp.run(transport="stdio")
 
 

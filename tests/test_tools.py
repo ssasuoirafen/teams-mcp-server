@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 
 import httpx
+import msal
 import pytest
 import requests
 from mcp import Client
@@ -158,41 +159,6 @@ async def test_complete_login_without_pending_login_is_error(install):
     assert "login" in text(result)
 
 
-class FakeMsalApp:
-    """msal.PublicClientApplication without the network: scripted accounts and flows.
-
-    `network_error`, when set, is raised by every call that would reach Entra, the way
-    msal lets its `requests` exceptions through.
-    """
-
-    accounts: list = []
-    device_flow: dict = {}
-    device_flow_result: dict = {}
-    network_error: Exception | None = None
-
-    def __init__(self, client_id, authority=None, token_cache=None, **kwargs):
-        pass
-
-    def _reach_entra(self):
-        if self.network_error is not None:
-            raise self.network_error
-
-    def get_accounts(self, username=None):
-        return list(self.accounts)
-
-    def acquire_token_silent(self, scopes, account, **kwargs):
-        self._reach_entra()
-        return None
-
-    def initiate_device_flow(self, scopes=None, **kwargs):
-        self._reach_entra()
-        return dict(self.device_flow)
-
-    def acquire_token_by_device_flow(self, flow, **kwargs):
-        self._reach_entra()
-        return dict(self.device_flow_result)
-
-
 CACHED_ACCOUNT = {
     "home_account_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5.2432b57b-0abd-43db-aa7b-16eadd115d34",
     "environment": "login.microsoftonline.com",
@@ -201,6 +167,88 @@ CACHED_ACCOUNT = {
     "username": "ann.lee@contoso.com",
     "authority_type": "MSSTS",
     "account_source": "urn:ietf:params:oauth:grant-type:device_code",
+}
+
+
+def signed_in_cache(*, refresh_token: bool = True) -> dict:
+    """Token cache state as msal serializes it after a sign-in. Without the refresh token
+    it is a sign-in that can no longer be renewed (e.g. the refresh token expired)."""
+    account_key = (
+        f"{CACHED_ACCOUNT['home_account_id']}-login.microsoftonline.com-{CACHED_ACCOUNT['realm']}"
+    )
+    state: dict = {"Account": {account_key: CACHED_ACCOUNT}}
+    if refresh_token:
+        state["RefreshToken"] = {
+            f"{CACHED_ACCOUNT['home_account_id']}-login.microsoftonline.com-refreshtoken-"
+            "test-client--": {
+                "credential_type": "RefreshToken",
+                "secret": "0.AXkAe7UyJL0K20OqexbqeRFdNA",
+                "home_account_id": CACHED_ACCOUNT["home_account_id"],
+                "environment": "login.microsoftonline.com",
+                "client_id": "test-client",
+                "target": "https://graph.microsoft.com/.default",
+                "last_modification_time": "1759838400",
+            },
+        }
+    return state
+
+
+class FakeMsalApp:
+    """msal.PublicClientApplication without the network, over the real token cache.
+
+    As in msal: accounts are what the cache holds, a silent refresh needs a refresh
+    token in the cache, and a successful device code sign-in lands in the cache.
+    `network_error`, when set, is raised by every call that would reach Entra, the way
+    msal lets its `requests` exceptions through.
+    """
+
+    device_flow: dict = {}
+    device_flow_result: dict = {}
+    network_error: Exception | None = None
+
+    def __init__(self, client_id, authority=None, token_cache=None, **kwargs):
+        self._cache = token_cache
+
+    def _reach_entra(self):
+        if self.network_error is not None:
+            raise self.network_error
+
+    def get_accounts(self, username=None):
+        return list(self._cache.search(msal.TokenCache.CredentialType.ACCOUNT))
+
+    def acquire_token_silent(self, scopes, account, **kwargs):
+        self._reach_entra()
+        if not list(self._cache.search(msal.TokenCache.CredentialType.REFRESH_TOKEN)):
+            return None
+        return {"access_token": "token-from-refresh", "token_type": "Bearer", "expires_in": 3599}
+
+    def initiate_device_flow(self, scopes=None, **kwargs):
+        self._reach_entra()
+        return dict(self.device_flow)
+
+    def acquire_token_by_device_flow(self, flow, **kwargs):
+        self._reach_entra()
+        result = dict(self.device_flow_result)
+        if "access_token" in result:
+            self._cache.deserialize(json.dumps(signed_in_cache()))
+            self._cache.has_state_changed = True  # what msal's cache.add() sets
+        return result
+
+
+SIGN_IN_RESULT = {
+    "token_type": "Bearer",
+    "scope": "https://graph.microsoft.com/.default",
+    "expires_in": 3599,
+    "access_token": "token-from-device-code",
+    "refresh_token": "0.AXkAe7UyJL0K20OqexbqeRFdNA",
+    "id_token_claims": {
+        "aud": "test-client",
+        "iss": "https://login.microsoftonline.com/2432b57b-0abd-43db-aa7b-16eadd115d34/v2.0",
+        "name": "Ann Lee",
+        "oid": "8b081ef6-4792-4def-b2c9-c363a1bf41d5",
+        "preferred_username": "ann.lee@contoso.com",
+        "tid": "2432b57b-0abd-43db-aa7b-16eadd115d34",
+    },
 }
 
 
@@ -233,22 +281,31 @@ def oauth_error(error: str, description: str, code: int) -> dict:
 
 @pytest.fixture
 def msal_app(monkeypatch, tmp_path):
-    """A real AuthManager over FakeMsalApp, with its token cache in tmp_path."""
+    """Script FakeMsalApp and return a real AuthManager over it.
+
+    The cache lives in `tmp_path/.teams-mcp`, the default location under a HOME that
+    points at tmp_path, so the server and the terminal login share it as in real use.
+    """
     monkeypatch.setattr("teams_mcp.auth.msal.PublicClientApplication", FakeMsalApp)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    cache_dir = tmp_path / ".teams-mcp"
 
     def _make(
         device_flow: dict | None = None,
         device_flow_result: dict | None = None,
         *,
-        accounts: list | None = None,
+        cache: dict | None = None,
         network_error: Exception | None = None,
     ) -> AuthManager:
         monkeypatch.setattr(FakeMsalApp, "device_flow", device_flow or {})
         monkeypatch.setattr(FakeMsalApp, "device_flow_result", device_flow_result or {})
-        monkeypatch.setattr(FakeMsalApp, "accounts", accounts or [])
         monkeypatch.setattr(FakeMsalApp, "network_error", network_error)
+        if cache is not None:
+            cache_dir.mkdir(exist_ok=True)
+            (cache_dir / "token_cache.json").write_text(json.dumps(cache), encoding="utf-8")
         return AuthManager(
-            tenant_id="test-tenant", client_id="test-client", cache_dir=str(tmp_path),
+            tenant_id="test-tenant", client_id="test-client", cache_dir=str(cache_dir),
         )
 
     return _make
@@ -937,7 +994,7 @@ ENTRA_UNREACHABLE = requests.ConnectionError(
 
 async def test_network_failure_while_refreshing_sign_in_reaches_client(install, msal_app):
     install(RecordingGraph(), auth=msal_app(
-        accounts=[CACHED_ACCOUNT], network_error=ENTRA_UNREACHABLE,
+        cache=signed_in_cache(), network_error=ENTRA_UNREACHABLE,
     ))
 
     result = await call("list_teams")
@@ -969,3 +1026,66 @@ async def test_before_and_after_together_bound_the_page(install):
         "2026-10-07T08:03:00.000Z",
     ]
     assert page["next_before"] is None
+
+
+# --- terminal sign-in (`teams-mcp login`) -------------------------------------
+
+
+def run_cli(*argv: str) -> int:
+    with pytest.raises(SystemExit) as exited:
+        server.main(list(argv))
+    return exited.value.code
+
+
+@pytest.fixture
+def cli(monkeypatch):
+    """Let server.main() set the module globals; restore them afterwards."""
+    monkeypatch.setattr(server, "auth", None)
+    monkeypatch.setattr(server, "graph", None)
+
+
+def test_terminal_login_shows_the_code_and_signs_in(cli, msal_app, capsys):
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    out = capsys.readouterr().out
+    assert "https://microsoft.com/devicelogin" in out
+    assert "F7KQ2XRTN" in out
+    assert "ann.lee@contoso.com" in out
+
+
+def test_terminal_login_failure_exits_with_the_reason(cli, msal_app, capsys):
+    msal_app(oauth_error(
+        "invalid_client",
+        "AADSTS7000218: The request body must contain the following parameter: "
+        "'client_assertion' or 'client_secret'.",
+        7000218,
+    ))
+
+    assert run_cli("login") == 1
+
+    assert "AADSTS7000218" in capsys.readouterr().err
+
+
+def test_terminal_login_when_already_signed_in_does_not_start_a_new_one(cli, msal_app, capsys):
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT, cache=signed_in_cache())
+
+    assert run_cli("login") == 0
+
+    out = capsys.readouterr().out
+    assert "ann.lee@contoso.com" in out
+    assert "F7KQ2XRTN" not in out
+
+
+@pytest.mark.parametrize("cache_before", [
+    None,  # never signed in
+    signed_in_cache(refresh_token=False),  # signed in once, the refresh token expired
+])
+def test_running_server_picks_up_a_terminal_login(cli, msal_app, capsys, cache_before):
+    running_server = msal_app(DEVICE_FLOW, SIGN_IN_RESULT, cache=cache_before)
+    assert running_server.get_token() is None
+
+    assert run_cli("login") == 0
+
+    assert running_server.get_token() == "token-from-refresh"

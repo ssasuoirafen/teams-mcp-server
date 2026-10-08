@@ -1,4 +1,4 @@
-<!-- last reviewed: 2026-06-26 -->
+<!-- last reviewed: 2026-10-08 -->
 
 # Teams MCP Server
 
@@ -12,6 +12,7 @@ Python >=3.12 (dev pin: 3.14 via `.python-version`), `mcp[cli]` 2.x (`MCPServer`
 
 ```bash
 uv run teams-mcp              # run server (needs TEAMS_MCP_TENANT_ID, TEAMS_MCP_CLIENT_ID)
+uv run teams-mcp login        # device code sign-in in the terminal (same variables)
 ```
 
 ## Environment Variables
@@ -36,7 +37,9 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 ## Tools
 
 ### Auth
-- `login` / `complete_login` - device code flow (two-phase)
+- Primary: `teams-mcp login` in a terminal (`main()` subcommand) - device code printed to the terminal; it writes the token cache the server reads
+- `login` / `complete_login` - the same device code flow from the MCP client (two-phase), for when there is no terminal
+- "Not authenticated" (`auth.NOT_AUTHENTICATED`) points the agent at the terminal command first; the server instructions key off that prefix
 
 ### Read
 - `list_teams`, `list_channels`, `list_chats`
@@ -102,7 +105,7 @@ Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`,
 - Chat replies (`send_chat_message` with `reply_to`) use `/chats/{id}/messages/replyWithQuote` - the `/replies` sub-collection only exists on channel messages
 - Some scopes require admin consent (see the Scopes section) - tools return 403 if not consented
 - `delete_message` is soft delete - message shows "This message has been deleted" to other users
-- Token cache at `~/.teams-mcp/token_cache.json` - delete file to force re-auth
+- Token cache at `~/.teams-mcp/token_cache.json` - delete file to force re-auth. The server keeps the cache in memory from startup; when it has no valid token it re-reads the file once (`AuthManager.get_token`), so a `teams-mcp login` from another process takes effect without a restart
 - Hosted content inside a channel REPLY is served only under `/messages/{parent}/replies/{reply}/hostedContents` - pass `parent_message_id` to `download_attachment`, the parent-form URL 404s for reply ids
 - Chat messages (`GET /chats/{id}/messages`): `$top` max 50; the default order is `lastModifiedDateTime desc`, so a reaction or edit moves an old message to the top; `$filter` on `createdDateTime` supports only `lt` and is silently ignored unless `$orderby` uses the same property. `list_chat_messages` therefore always sends `$orderby=createdDateTime desc` and applies `after` itself, stopping the paging at the first older message. The docs do not say whether `@odata.nextLink` keeps `$orderby`, so the pager raises `UnexpectedOrder` if `createdDateTime` ever stops decreasing - not yet checked against a real tenant
 - The pager (`GraphClient._iter_collection`) follows `@odata.nextLink` only within `GRAPH_BASE` (the request carries the user's token) and stops with `TooManyPages` after `MAX_PAGES`

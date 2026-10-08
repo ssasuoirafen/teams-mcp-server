@@ -13,6 +13,13 @@ class AuthError(Exception):
     """Sign-in is missing or failed; the message says what the user should do."""
 
 
+# The server instructions key off "Not authenticated", so keep that prefix.
+NOT_AUTHENTICATED = (
+    "Not authenticated. The user can sign in by running `teams-mcp login` in a terminal; "
+    "otherwise call the login tool."
+)
+
+
 @contextmanager
 def _network_errors_as_auth_errors(action: str) -> Iterator[None]:
     """msal reaches Entra through requests and lets its exceptions through.
@@ -41,6 +48,7 @@ class AuthManager:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_path = self._cache_dir / "token_cache.json"
         self._cache = msal.SerializableTokenCache()
+        self._cache_text: str | None = None  # the file content this process last read or wrote
         self._load_cache()
         self._app = msal.PublicClientApplication(
             client_id=self.client_id,
@@ -48,17 +56,34 @@ class AuthManager:
             token_cache=self._cache,
         )
 
-    def _load_cache(self):
-        if self._cache_path.exists():
-            self._cache.deserialize(self._cache_path.read_text(encoding="utf-8"))
+    def _load_cache(self) -> bool:
+        """Load the cache file if it changed since this process last read or wrote it.
+
+        Returns True when it did: another process wrote it, e.g. `teams-mcp login`.
+        """
+        if not self._cache_path.exists():
+            return False
+        text = self._cache_path.read_text(encoding="utf-8")
+        if text == self._cache_text:
+            return False
+        self._cache.deserialize(text)
+        self._cache_text = text
+        return True
 
     def _save_cache(self):
         if self._cache.has_state_changed:
-            self._cache_path.write_text(
-                self._cache.serialize(), encoding="utf-8"
-            )
+            self._cache_text = self._cache.serialize()
+            self._cache_path.write_text(self._cache_text, encoding="utf-8")
 
     def get_token(self) -> str | None:
+        token = self._silent_token()
+        # The server keeps the cache in memory from startup. If the user signed in from a
+        # terminal since then (`teams-mcp login`), the token is only in the file.
+        if token is None and self._load_cache():
+            token = self._silent_token()
+        return token
+
+    def _silent_token(self) -> str | None:
         accounts = self._app.get_accounts()
         if not accounts:
             return None
@@ -70,6 +95,11 @@ class AuthManager:
         if result and "access_token" in result:
             return result["access_token"]
         return None
+
+    def username(self) -> str | None:
+        """The signed-in account's user name, if the cache holds one."""
+        accounts = self._app.get_accounts()
+        return accounts[0].get("username") if accounts else None
 
     def login(self) -> dict:
         with _network_errors_as_auth_errors("Starting the device code sign-in"):

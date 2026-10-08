@@ -576,7 +576,10 @@ async def test_thread_replies_beyond_one_graph_page(install):
 
 @pytest.mark.parametrize("tool, arguments", [
     ("list_channel_messages", {"team_id": TEAM_ID, "channel_id": CHANNEL_ID}),
-    ("list_thread_replies", {"team_id": TEAM_ID, "channel_id": CHANNEL_ID, "message_id": THREAD_ID}),
+    (
+        "list_thread_replies",
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID, "message_id": THREAD_ID},
+    ),
 ])
 @pytest.mark.parametrize("limit", [0, server.MAX_LIST_LIMIT + 1])
 async def test_channel_list_limit_out_of_range_is_error(install, tool, arguments, limit):
@@ -628,3 +631,79 @@ async def test_mentions_as_json_string_are_sent(install):
     assert not result.is_error, text(result)
     sent = json.loads(graph.requests[0].content)
     assert sent["mentions"][0]["mentioned"]["user"]["id"] == "8b081ef6-4792-4def-b2c9-c363a1bf41d5"
+
+
+# --- get_message: open a message by Teams link or ids ---------------------------
+
+CHAT_LINK = (
+    "https://teams.microsoft.com/l/message/"
+    "19%3A5f4e2a10-aaaa-4bbb-8ccc-000000000001_9c8b7a60-dddd-4eee-8fff-000000000002"
+    "%40unq.gbl.spaces/1759838400000?context=%7B%22contextType%22%3A%22chat%22%7D"
+)
+CHANNEL_REPLY_LINK = (
+    "https://teams.microsoft.com/l/message/19%3A4a95f7d8db4c4e7fae857bcebe0623e6%40thread.tacv2"
+    "/1759838500000?tenantId=2432b57b-0abd-43db-aa7b-16eadd115d34"
+    "&groupId=fbe2bf47-16c8-47cf-b4a5-4b9b187c508b&parentMessageId=1759820400000"
+    "&teamName=Data%20Platform&channelName=General&createdTime=1759838500000"
+)
+CHANNEL_ROOT_LINK = (
+    "https://teams.microsoft.com/l/message/19%3A4a95f7d8db4c4e7fae857bcebe0623e6%40thread.tacv2"
+    "/1759820400000?tenantId=2432b57b-0abd-43db-aa7b-16eadd115d34"
+    "&groupId=fbe2bf47-16c8-47cf-b4a5-4b9b187c508b&parentMessageId=1759820400000"
+    "&teamName=Data%20Platform&channelName=General&createdTime=1759820400000"
+)
+CHANNEL_BASE = f"/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages"
+
+
+@pytest.mark.parametrize("arguments, graph_path, location", [
+    (
+        {"link": CHAT_LINK},
+        f"/v1.0/chats/{CHAT_ID}/messages/1759838400000",
+        {"chat_id": CHAT_ID},
+    ),
+    (
+        {"link": CHANNEL_REPLY_LINK},
+        f"{CHANNEL_BASE}/1759820400000/replies/1759838500000",
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID, "parent_message_id": "1759820400000"},
+    ),
+    (
+        {"link": CHANNEL_ROOT_LINK},
+        f"{CHANNEL_BASE}/1759820400000",
+        {"team_id": TEAM_ID, "channel_id": CHANNEL_ID},
+    ),
+    (
+        {"chat_id": CHAT_ID, "message_id": "1759838400000"},
+        f"/v1.0/chats/{CHAT_ID}/messages/1759838400000",
+        {"chat_id": CHAT_ID},
+    ),
+])
+async def test_get_message_finds_it_where_the_link_points(install, arguments, graph_path, location):
+    graph = RecordingGraph(lambda request: httpx.Response(
+        200, json=chat_message("2026-10-07T12:00:00.000Z"),
+    ))
+    install(graph)
+
+    result = await call("get_message", arguments)
+
+    assert not result.is_error, text(result)
+    assert [r.url.path for r in graph.requests] == [graph_path]
+    found = json.loads(text(result))
+    assert {k: v for k, v in found.items() if k != "message"} == location
+    assert found["message"]["createdDateTime"] == "2026-10-07T12:00:00.000Z"
+
+
+@pytest.mark.parametrize("arguments", [
+    {"link": "https://teams.microsoft.com/l/chat/19%3Aabc%40thread.v2/0"},
+    {"link": "1759838400000"},
+    {"message_id": "1759838400000"},
+    {},
+])
+async def test_get_message_without_a_usable_location_is_error(install, arguments):
+    graph = RecordingGraph()
+    install(graph)
+
+    result = await call("get_message", arguments)
+
+    assert result.is_error
+    assert "link" in text(result)
+    assert graph.requests == []

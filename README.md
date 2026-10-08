@@ -27,6 +27,7 @@ MCP server for Microsoft Teams via Microsoft Graph API.
 | `list_team_members` / `list_channel_members` / `list_chat_members` | List members |
 | `list_team_tags` | List team tags (for @tag mentions in send/reply tools) |
 | `list_pinned_messages` | List pinned messages |
+| `get_message` | Open one chat or channel message by its Teams link or by ids |
 | `download_attachment` | Download an inline image (hostedContents) to a temp file |
 
 Adaptive Card attachments (from bots) are automatically extracted as plain text.

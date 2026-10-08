@@ -176,6 +176,14 @@ class GraphClient:
     async def get_chat_message(self, chat_id: str, message_id: str) -> dict:
         return await self._get(f"/chats/{chat_id}/messages/{message_id}")
 
+    async def get_channel_reply(
+        self, team_id: str, channel_id: str, parent_message_id: str, reply_id: str,
+    ) -> dict:
+        return await self._get(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{parent_message_id}"
+            f"/replies/{reply_id}",
+        )
+
     @staticmethod
     def _to_html(text: str) -> str:
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

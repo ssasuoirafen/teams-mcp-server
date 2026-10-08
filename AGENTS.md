@@ -46,6 +46,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 - `list_team_members`, `list_channel_members`, `list_chat_members`
 - `list_team_tags` (tag ids for @tag mentions; needs `TeamworkTag.Read`)
 - `list_pinned_messages`
+- `get_message` - one message by Teams link (`/l/message/<chat or channel id>/<message id>`; a channel link carries `groupId` = team id and `parentMessageId` = thread root) or by ids; returns where it lives plus the formatted message
 - `get_user_presence`, `get_user` (search by name/email)
 - `search_messages` (Microsoft Search API, full-text)
 - `download_attachment` (inline images via hostedContents, magic-byte format detection — png/jpg/gif/webp, returns temp file path)
@@ -62,7 +63,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 ### Tool patterns
 - Channel tools need `team_id` + `channel_id`
 - Chat tools need `chat_id`
-- Dual-context tools (reactions, delete, update, download_attachment) accept either `chat_id` OR `team_id + channel_id`
+- Dual-context tools (reactions, delete, update, download_attachment, get_message) accept either `chat_id` OR `team_id + channel_id`
 - Send tools accept `mentions` as list or JSON string: `[{"user_id": "...", "name": "..."}]` for users, `[{"tag_id": "...", "name": "..."}]` for team tags (channel messages only; ids from `list_team_tags`); use `@Name` in content (longest-name-first replacement to avoid partial matches). Malformed `mentions` (invalid JSON, not a list, an entry without `name` or without exactly one of `user_id`/`tag_id`) fail with a `ToolError` before anything is sent; an entry whose `@Name` is missing from content is still dropped silently
 
 ## Error handling

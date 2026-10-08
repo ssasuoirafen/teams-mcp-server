@@ -38,6 +38,7 @@ EXPECTED_TOOLS = {
     "get_user",
     "search_messages",
     "download_attachment",
+    "get_message",
     # write
     "send_channel_message",
     "send_chat_message",
@@ -95,7 +96,7 @@ async def _registered_tool_names() -> set[str]:
 
 
 async def test_tool_count():
-    assert len(await _registered_tool_names()) == 30
+    assert len(await _registered_tool_names()) == 31
 
 
 def test_build_message_body_user_mention():

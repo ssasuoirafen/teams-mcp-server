@@ -7,6 +7,7 @@ import sys
 import tempfile
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -115,6 +116,31 @@ def _parse_timestamp(name: str, value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _parse_message_link(link: str) -> tuple[dict[str, str], str]:
+    """Split a Teams message link into where the message lives and its id.
+
+    The path is /l/message/<chat or channel id>/<message id>. A channel link carries the
+    team as groupId and the thread root as parentMessageId (the message's own id for a
+    root message); a chat link has neither.
+    """
+    url = urlsplit(link.strip())
+    match = re.fullmatch(r"/l/message/([^/]+)/(\d+)/?", url.path)
+    if not match:
+        raise ToolError(
+            "link must be a Teams message link such as https://teams.microsoft.com/l/message/"
+            f"<chat or channel id>/<message id>, got {link!r}"
+        )
+    conversation_id, message_id = unquote(match.group(1)), match.group(2)
+    query = parse_qs(url.query)
+    if "groupId" not in query:
+        return {"chat_id": conversation_id}, message_id
+    location = {"team_id": query["groupId"][0], "channel_id": conversation_id}
+    parent = query.get("parentMessageId", [message_id])[0]
+    if parent != message_id:
+        location["parent_message_id"] = parent
+    return location, message_id
 
 
 def _strip_html(text: str) -> str:
@@ -620,6 +646,53 @@ async def list_chat_messages(
         "next_before": next_before,
     }
     return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+# Tool: get_message
+# Annotations: readOnlyHint=True, openWorldHint=True
+@_tool
+async def get_message(
+    link: str | None = None,
+    message_id: str | None = None,
+    chat_id: str | None = None,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+    parent_message_id: str | None = None,
+) -> str:
+    """Get one chat or channel message by its Teams link or by ids.
+
+    link: a message link copied from Teams, shaped like
+    https://teams.microsoft.com/l/message/<chat or channel id>/<message id>?...
+    Without a link, pass message_id with chat_id, or with team_id + channel_id (plus
+    parent_message_id, the thread root id, for a reply in a channel thread).
+    Returns where the message lives (chat_id, or team_id + channel_id and, for a reply,
+    parent_message_id) and the message with id, sender, createdDateTime and content.
+    To read around a chat message, pass its createdDateTime to list_chat_messages as
+    before or after.
+    """
+    if link:
+        location, message_id = _parse_message_link(link)
+    elif message_id and chat_id:
+        location = {"chat_id": chat_id}
+    elif message_id and team_id and channel_id:
+        location = {"team_id": team_id, "channel_id": channel_id}
+        if parent_message_id:
+            location["parent_message_id"] = parent_message_id
+    else:
+        raise ToolError("Provide link, or message_id with chat_id or team_id + channel_id")
+    _init_if_needed()
+    client = _require_auth()
+    if "chat_id" in location:
+        msg = await client.get_chat_message(location["chat_id"], message_id)
+    elif "parent_message_id" in location:
+        msg = await client.get_channel_reply(
+            location["team_id"], location["channel_id"], location["parent_message_id"], message_id,
+        )
+    else:
+        msg = await client.get_channel_message(
+            location["team_id"], location["channel_id"], message_id,
+        )
+    return json.dumps({**location, "message": _format_message(msg)}, ensure_ascii=False, indent=2)
 
 
 # Tool: send_channel_message

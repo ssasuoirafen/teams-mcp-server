@@ -74,8 +74,10 @@ def _require_auth() -> GraphClient:
 
 # Failures the caller can act on. mcp 2.x passes only ToolError text to the client; any
 # other exception reaches it as a bare "Error executing tool <name>" and is logged with
-# its traceback as a crash, which is what a real bug should stay.
-_ANTICIPATED_ERRORS = (AuthError, GraphApiError, ValueError)
+# its traceback as a crash, which is what a real bug should stay. Bad arguments are
+# checked in the tools and raised as ToolError directly, so ValueError is not listed:
+# it would also swallow bugs such as a non-JSON Graph body.
+_ANTICIPATED_ERRORS = (AuthError, GraphApiError)
 
 
 def _tool(fn):
@@ -1142,6 +1144,8 @@ async def download_attachment(
     image is written to the system temp directory on the machine running this server
     and is not deleted afterwards.
     """
+    if not chat_id and not (team_id and channel_id):
+        raise ToolError("Provide chat_id OR (team_id + channel_id)")
     _init_if_needed()
     client = _require_auth()
     data = await client.download_hosted_content(

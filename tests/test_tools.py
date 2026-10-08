@@ -707,3 +707,19 @@ async def test_get_message_without_a_usable_location_is_error(install, arguments
     assert result.is_error
     assert "link" in text(result)
     assert graph.requests == []
+
+
+# --- review fixes ------------------------------------------------------------
+
+
+async def test_unexpected_failure_stays_a_crash(install):
+    """Only anticipated failures carry their text; a bug keeps the SDK's bare message
+    (and its traceback in the server log)."""
+    install(RecordingGraph(lambda request: httpx.Response(
+        200, text="<html>Service Unavailable</html>", headers={"content-type": "text/html"},
+    )))
+
+    result = await call("list_teams")
+
+    assert result.is_error
+    assert text(result) == "Error executing tool list_teams"

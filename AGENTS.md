@@ -69,8 +69,8 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 ## Error handling
 
 - mcp 2.x passes only `ToolError` text to the client (an `is_error` result prefixed `Error executing tool <name>: `). Any other exception is a crash: the client sees only `Error executing tool <name>` and the traceback goes to the server log.
-- Tools are registered with `@_tool`, not `@mcp.tool()`: it re-raises the anticipated failures (`AuthError`, `GraphApiError`, `ValueError`) as `ToolError` and leaves everything else a crash, so real bugs keep their traceback
-- Argument checks inside a tool raise `ToolError` directly; `graph.py` and `auth.py` raise their own exceptions and stay unaware of MCP
+- Tools are registered with `@_tool`, not `@mcp.tool()`: it re-raises the anticipated failures (`AuthError`, `GraphApiError`) as `ToolError` and leaves everything else a crash, so real bugs keep their traceback. `ValueError` is deliberately not converted - it would also swallow bugs such as a non-JSON Graph body
+- Argument checks inside a tool raise `ToolError` directly, before any Graph call; `graph.py` and `auth.py` raise their own exceptions and stay unaware of MCP
 - `GraphApiError(status_code, code, message)` - raised by all graph helpers, contains parsed Graph API error JSON
 - 403 errors surface the Graph API message directly (e.g. "Insufficient privileges to complete the operation") - tools work with whatever scopes the user has, missing scopes produce clear errors
 - `AuthError` (`auth.py`) - sign-in missing ("Not authenticated...", from `_require_auth()` or a token provider that returns nothing) or failed (device flow errors from `AuthManager`)

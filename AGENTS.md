@@ -6,7 +6,7 @@ MCP server for Microsoft Teams via Microsoft Graph API. Delegated auth (device c
 
 ## Stack
 
-Python >=3.12 (dev pin: 3.14 via `.python-version`), `mcp[cli]` 2.x (`MCPServer`; the major is bounded `<3`, so the next SDK major is a deliberate port rather than a broken fresh install), httpx, msal. Tests in `tests/` (`uv run pytest`): `test_server.py` pins the tool surface and formatting, `test_tools.py` calls tools through an in-process `mcp.Client` over a fake Graph transport (`httpx.MockTransport`) and fake sign-in, with no network; ruff + pytest in the dev group (`uv sync`). CI runs on push/PR via `.github/workflows/ci.yml` (uv sync + pytest + advisory ruff).
+Python per `requires-python` in `pyproject.toml` (the latest stable release; dev pin in `.python-version`), `mcp[cli]` 2.x (`MCPServer`; the major is bounded `<3`, so the next SDK major is a deliberate port rather than a broken fresh install), httpx, msal. Tests in `tests/` (`uv run pytest`): `test_server.py` pins the tool surface and formatting, `test_tools.py` calls tools through an in-process `mcp.Client` over a fake Graph transport (`httpx.MockTransport`) and fake sign-in, with no network; ruff + pytest in the dev group (`uv sync`). CI runs on push/PR via `.github/workflows/ci.yml` (uv sync + pytest + advisory ruff).
 
 ## Commands
 

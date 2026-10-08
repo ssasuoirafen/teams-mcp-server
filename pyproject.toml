@@ -3,13 +3,13 @@ name = "teams-mcp-server"
 version = "0.3.0"
 description = "MCP server for Microsoft Teams via Graph API"
 license = "MIT"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "mcp[cli]>=2.0.0,<3",
-    "msal>=1.31.0",
-    "httpx>=0.28.0",
+    "mcp[cli]>=2.3.0,<3",
+    "msal>=1.39.0",
+    "httpx>=0.28.1",
     # msal's HTTP client; auth.py catches its network exceptions
-    "requests>=2.0.0,<3",
+    "requests>=2.34.2,<3",
 ]
 
 [project.scripts]
@@ -24,9 +24,9 @@ packages = ["src/teams_mcp"]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "ruff>=0.6",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.10",
 ]
 
 [tool.pytest.ini_options]
@@ -36,7 +36,7 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

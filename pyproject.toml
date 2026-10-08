@@ -8,6 +8,8 @@ dependencies = [
     "mcp[cli]>=2.0.0,<3",
     "msal>=1.31.0",
     "httpx>=0.28.0",
+    # msal's HTTP client; auth.py catches its network exceptions
+    "requests>=2.0.0,<3",
 ]
 
 [project.scripts]

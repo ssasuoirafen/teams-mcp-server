@@ -1,13 +1,29 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import msal
+import requests
 
 DEFAULT_SCOPES = ["https://graph.microsoft.com/.default"]
 
 
 class AuthError(Exception):
     """Sign-in is missing or failed; the message says what the user should do."""
+
+
+@contextmanager
+def _network_errors_as_auth_errors(action: str) -> Iterator[None]:
+    """msal reaches Entra through requests and lets its exceptions through.
+
+    A network failure is a sign-in failure the user can act on, not a crash. The message
+    must not say "Not authenticated": that sends the agent to log in again.
+    """
+    try:
+        yield
+    except requests.RequestException as exc:
+        raise AuthError(f"{action} failed: {type(exc).__name__}: {exc}") from exc
 
 
 class AuthManager:
@@ -46,16 +62,18 @@ class AuthManager:
         accounts = self._app.get_accounts()
         if not accounts:
             return None
-        result = self._app.acquire_token_silent(
-            scopes=self.scopes, account=accounts[0]
-        )
+        with _network_errors_as_auth_errors("Refreshing the sign-in"):
+            result = self._app.acquire_token_silent(
+                scopes=self.scopes, account=accounts[0]
+            )
         self._save_cache()
         if result and "access_token" in result:
             return result["access_token"]
         return None
 
     def login(self) -> dict:
-        flow = self._app.initiate_device_flow(scopes=self.scopes)
+        with _network_errors_as_auth_errors("Starting the device code sign-in"):
+            flow = self._app.initiate_device_flow(scopes=self.scopes)
         if "user_code" not in flow:
             raise AuthError(
                 f"Device flow failed: {flow.get('error_description', 'unknown error')}"
@@ -63,7 +81,8 @@ class AuthManager:
         return flow
 
     def complete_login(self, flow: dict) -> dict:
-        result = self._app.acquire_token_by_device_flow(flow)
+        with _network_errors_as_auth_errors("Completing the device code sign-in"):
+            result = self._app.acquire_token_by_device_flow(flow)
         self._save_cache()
         if "access_token" in result:
             return {

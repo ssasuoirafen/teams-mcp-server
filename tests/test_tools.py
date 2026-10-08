@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import httpx
 import pytest
+import requests
 from mcp import Client
 
 os.environ.setdefault("TEAMS_MCP_TENANT_ID", "test-tenant")
@@ -158,25 +159,49 @@ async def test_complete_login_without_pending_login_is_error(install):
 
 
 class FakeMsalApp:
-    """msal.PublicClientApplication without the network: no cached account, scripted flows."""
+    """msal.PublicClientApplication without the network: scripted accounts and flows.
 
+    `network_error`, when set, is raised by every call that would reach Entra, the way
+    msal lets its `requests` exceptions through.
+    """
+
+    accounts: list = []
     device_flow: dict = {}
     device_flow_result: dict = {}
+    network_error: Exception | None = None
 
     def __init__(self, client_id, authority=None, token_cache=None, **kwargs):
         pass
 
+    def _reach_entra(self):
+        if self.network_error is not None:
+            raise self.network_error
+
     def get_accounts(self, username=None):
-        return []
+        return list(self.accounts)
 
     def acquire_token_silent(self, scopes, account, **kwargs):
+        self._reach_entra()
         return None
 
     def initiate_device_flow(self, scopes=None, **kwargs):
+        self._reach_entra()
         return dict(self.device_flow)
 
     def acquire_token_by_device_flow(self, flow, **kwargs):
+        self._reach_entra()
         return dict(self.device_flow_result)
+
+
+CACHED_ACCOUNT = {
+    "home_account_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5.2432b57b-0abd-43db-aa7b-16eadd115d34",
+    "environment": "login.microsoftonline.com",
+    "realm": "2432b57b-0abd-43db-aa7b-16eadd115d34",
+    "local_account_id": "8b081ef6-4792-4def-b2c9-c363a1bf41d5",
+    "username": "ann.lee@contoso.com",
+    "authority_type": "MSSTS",
+    "account_source": "urn:ietf:params:oauth:grant-type:device_code",
+}
 
 
 DEVICE_FLOW = {
@@ -211,9 +236,17 @@ def msal_app(monkeypatch, tmp_path):
     """A real AuthManager over FakeMsalApp, with its token cache in tmp_path."""
     monkeypatch.setattr("teams_mcp.auth.msal.PublicClientApplication", FakeMsalApp)
 
-    def _make(device_flow: dict, device_flow_result: dict | None = None) -> AuthManager:
-        monkeypatch.setattr(FakeMsalApp, "device_flow", device_flow)
+    def _make(
+        device_flow: dict | None = None,
+        device_flow_result: dict | None = None,
+        *,
+        accounts: list | None = None,
+        network_error: Exception | None = None,
+    ) -> AuthManager:
+        monkeypatch.setattr(FakeMsalApp, "device_flow", device_flow or {})
         monkeypatch.setattr(FakeMsalApp, "device_flow_result", device_flow_result or {})
+        monkeypatch.setattr(FakeMsalApp, "accounts", accounts or [])
+        monkeypatch.setattr(FakeMsalApp, "network_error", network_error)
         return AuthManager(
             tenant_id="test-tenant", client_id="test-client", cache_dir=str(tmp_path),
         )
@@ -877,3 +910,30 @@ async def test_pages_out_of_creation_order_are_an_error(install):
 
     assert result.is_error
     assert "order" in text(result)
+
+
+ENTRA_UNREACHABLE = requests.ConnectionError(
+    "HTTPSConnectionPool(host='login.microsoftonline.com', port=443): Max retries exceeded"
+)
+
+
+async def test_network_failure_while_refreshing_sign_in_reaches_client(install, msal_app):
+    install(RecordingGraph(), auth=msal_app(
+        accounts=[CACHED_ACCOUNT], network_error=ENTRA_UNREACHABLE,
+    ))
+
+    result = await call("list_teams")
+
+    assert result.is_error
+    assert "ConnectionError" in text(result)
+    # a network problem must not send the agent to log in again
+    assert "Not authenticated" not in text(result)
+
+
+async def test_network_failure_while_starting_login_reaches_client(install, msal_app):
+    install(RecordingGraph(), auth=msal_app(DEVICE_FLOW, network_error=ENTRA_UNREACHABLE))
+
+    result = await call("login")
+
+    assert result.is_error
+    assert "ConnectionError" in text(result)

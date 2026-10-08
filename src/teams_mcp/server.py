@@ -1,3 +1,5 @@
+import functools
+import inspect
 import json
 import os
 import re
@@ -6,9 +8,10 @@ import tempfile
 from importlib.metadata import PackageNotFoundError, version
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
-from teams_mcp.auth import AuthManager
-from teams_mcp.graph import GraphClient
+from teams_mcp.auth import AuthError, AuthManager
+from teams_mcp.graph import GraphApiError, GraphClient
 
 try:
     _VERSION = version("teams-mcp-server")
@@ -58,8 +61,34 @@ def _init_if_needed():
 
 def _require_auth() -> GraphClient:
     if graph is None or not auth.is_authenticated():
-        raise RuntimeError("Not authenticated. Call the login tool first.")
+        raise AuthError("Not authenticated. Call the login tool first.")
     return graph
+
+
+# Failures the caller can act on. mcp 2.x passes only ToolError text to the client; any
+# other exception reaches it as a bare "Error executing tool <name>" and is logged with
+# its traceback as a crash, which is what a real bug should stay.
+_ANTICIPATED_ERRORS = (AuthError, GraphApiError, ValueError)
+
+
+def _tool(fn):
+    """Register fn as an MCP tool whose anticipated failures reach the client as text."""
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except _ANTICIPATED_ERRORS as exc:
+                raise ToolError(str(exc)) from exc
+    else:
+        # sync tools stay sync, so the SDK runs them in a worker thread (complete_login blocks)
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except _ANTICIPATED_ERRORS as exc:
+                raise ToolError(str(exc)) from exc
+    return mcp.tool()(wrapper)
 
 
 def _strip_html(text: str) -> str:
@@ -311,7 +340,7 @@ _pending_flow: dict | None = None
 
 # Tool: login
 # Annotations: openWorldHint=True
-@mcp.tool()
+@_tool
 def login() -> str:
     """Start authentication with Microsoft Teams via device code flow.
 
@@ -344,7 +373,7 @@ def login() -> str:
 
 # Tool: complete_login
 # Annotations: openWorldHint=True
-@mcp.tool()
+@_tool
 def complete_login() -> str:
     """Complete the device code authentication after the user has entered the code in the browser.
 
@@ -353,7 +382,7 @@ def complete_login() -> str:
     global _pending_flow
     _init_if_needed()
     if _pending_flow is None:
-        return json.dumps({"status": "error", "message": "No pending login. Call login first."})
+        raise ToolError("No pending login. Call login first.")
     flow = _pending_flow
     _pending_flow = None
     result = auth.complete_login(flow)
@@ -362,7 +391,7 @@ def complete_login() -> str:
 
 # Tool: list_teams
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_teams() -> str:
     """List all Microsoft Teams you are a member of.
 
@@ -385,7 +414,7 @@ async def list_teams() -> str:
 
 # Tool: list_channels
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_channels(team_id: str) -> str:
     """List channels in a Microsoft Teams team.
 
@@ -409,7 +438,7 @@ async def list_channels(team_id: str) -> str:
 
 # Tool: list_team_tags
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_team_tags(team_id: str) -> str:
     """List TEAM-level tags of a team (id, name, member count).
 
@@ -435,7 +464,7 @@ async def list_team_tags(team_id: str) -> str:
 
 # Tool: list_chats
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_chats(limit: int = 20) -> str:
     """List recent chats with participant names.
 
@@ -464,7 +493,7 @@ async def list_chats(limit: int = 20) -> str:
 
 # Tool: list_channel_messages
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_channel_messages(team_id: str, channel_id: str, limit: int = 20) -> str:
     """List recent top-level messages in a Teams channel.
 
@@ -487,7 +516,7 @@ async def list_channel_messages(team_id: str, channel_id: str, limit: int = 20) 
 
 # Tool: list_thread_replies
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_thread_replies(
     team_id: str, channel_id: str, message_id: str, limit: int = 20
 ) -> str:
@@ -512,7 +541,7 @@ async def list_thread_replies(
 
 # Tool: list_chat_messages
 # Annotations: readOnlyHint=True, openWorldHint=True
-@mcp.tool()
+@_tool
 async def list_chat_messages(chat_id: str, limit: int = 20) -> str:
     """List recent messages in a chat.
 
@@ -534,7 +563,7 @@ async def list_chat_messages(chat_id: str, limit: int = 20) -> str:
 
 # Tool: send_channel_message
 # Annotations: openWorldHint=True
-@mcp.tool()
+@_tool
 async def send_channel_message(
     team_id: str, channel_id: str, content: str, mentions: list | str | None = None,
 ) -> str:
@@ -562,7 +591,7 @@ async def send_channel_message(
 
 # Tool: send_chat_message
 # Annotations: openWorldHint=True
-@mcp.tool()
+@_tool
 async def send_chat_message(
     chat_id: str, content: str, mentions: list | str | None = None, reply_to: str | None = None,
 ) -> str:
@@ -590,7 +619,7 @@ async def send_chat_message(
 
 # Tool: reply_to_channel_message
 # Annotations: openWorldHint=True
-@mcp.tool()
+@_tool
 async def reply_to_channel_message(
     team_id: str, channel_id: str, message_id: str, content: str, mentions: list | str | None = None,
 ) -> str:
@@ -619,7 +648,7 @@ async def reply_to_channel_message(
 
 # Tool: create_chat
 # Annotations: openWorldHint=True
-@mcp.tool()
+@_tool
 async def create_chat(user_email: str, message: str) -> str:
     """Send a message in the 1:1 chat with a user, creating the chat if needed.
 
@@ -641,7 +670,7 @@ async def create_chat(user_email: str, message: str) -> str:
     }, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def list_team_members(team_id: str) -> str:
     """List members of a Microsoft Teams team.
 
@@ -654,7 +683,7 @@ async def list_team_members(team_id: str) -> str:
     return json.dumps([_format_member(m) for m in members], ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def list_channel_members(team_id: str, channel_id: str) -> str:
     """List members of a specific channel.
 
@@ -667,7 +696,7 @@ async def list_channel_members(team_id: str, channel_id: str) -> str:
     return json.dumps([_format_member(m) for m in members], ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def list_chat_members(chat_id: str) -> str:
     """List members of a chat.
 
@@ -680,7 +709,7 @@ async def list_chat_members(chat_id: str) -> str:
     return json.dumps([_format_member(m) for m in members], ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def delete_message(
     message_id: str,
     chat_id: str | None = None,
@@ -702,11 +731,11 @@ async def delete_message(
     elif team_id and channel_id:
         await client.soft_delete_channel_message(team_id, channel_id, message_id)
     else:
-        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+        raise ToolError("Provide chat_id OR (team_id + channel_id)")
     return json.dumps({"status": "ok", "deleted": message_id})
 
 
-@mcp.tool()
+@_tool
 async def update_message(
     message_id: str,
     content: str,
@@ -730,11 +759,11 @@ async def update_message(
     elif team_id and channel_id:
         await client.update_channel_message(team_id, channel_id, message_id, content)
     else:
-        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+        raise ToolError("Provide chat_id OR (team_id + channel_id)")
     return json.dumps({"status": "ok", "updated": message_id})
 
 
-@mcp.tool()
+@_tool
 async def set_reaction(
     message_id: str,
     reaction: str,
@@ -758,11 +787,11 @@ async def set_reaction(
     elif team_id and channel_id:
         await client.set_reaction_channel(team_id, channel_id, message_id, reaction)
     else:
-        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+        raise ToolError("Provide chat_id OR (team_id + channel_id)")
     return json.dumps({"status": "ok", "reaction": reaction})
 
 
-@mcp.tool()
+@_tool
 async def unset_reaction(
     message_id: str,
     reaction: str,
@@ -784,11 +813,11 @@ async def unset_reaction(
     elif team_id and channel_id:
         await client.unset_reaction_channel(team_id, channel_id, message_id, reaction)
     else:
-        return json.dumps({"error": "Provide chat_id OR (team_id + channel_id)"})
+        raise ToolError("Provide chat_id OR (team_id + channel_id)")
     return json.dumps({"status": "ok", "reaction_removed": reaction})
 
 
-@mcp.tool()
+@_tool
 async def create_group_chat(member_emails: str, topic: str | None = None, message: str | None = None) -> str:
     """Create a new group chat with you and at least two other users.
 
@@ -801,10 +830,10 @@ async def create_group_chat(member_emails: str, topic: str | None = None, messag
     """
     _init_if_needed()
     client = _require_auth()
-    me = await client.get_me()
     emails = [e.strip() for e in member_emails.split(",") if e.strip()]
     if len(emails) < 2:
-        return json.dumps({"error": "Group chat requires at least 2 other members"})
+        raise ToolError("Group chat requires at least 2 other members")
+    me = await client.get_me()
     chat = await client.create_group_chat(me["id"], emails, topic=topic)
     chat_id = chat["id"]
     result: dict = {"status": "created", "chat_id": chat_id, "topic": topic}
@@ -814,7 +843,7 @@ async def create_group_chat(member_emails: str, topic: str | None = None, messag
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def pin_message(chat_id: str, message_id: str) -> str:
     """Pin a message in a chat.
 
@@ -826,7 +855,7 @@ async def pin_message(chat_id: str, message_id: str) -> str:
     return json.dumps({"status": "ok", "pinned_message_info_id": result.get("id")}, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def unpin_message(chat_id: str, pinned_message_info_id: str) -> str:
     """Unpin a message from a chat.
 
@@ -838,7 +867,7 @@ async def unpin_message(chat_id: str, pinned_message_info_id: str) -> str:
     return json.dumps({"status": "ok", "unpinned": pinned_message_info_id})
 
 
-@mcp.tool()
+@_tool
 async def list_pinned_messages(chat_id: str) -> str:
     """List pinned messages in a chat.
 
@@ -858,7 +887,7 @@ async def list_pinned_messages(chat_id: str) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def mark_chat_read(chat_id: str) -> str:
     """Mark a chat as read for the current user.
 
@@ -871,7 +900,7 @@ async def mark_chat_read(chat_id: str) -> str:
     return json.dumps({"status": "ok", "chat_id": chat_id, "marked": "read"})
 
 
-@mcp.tool()
+@_tool
 async def mark_chat_unread(chat_id: str, last_message_read_date_time: str) -> str:
     """Mark a chat as unread for the current user.
 
@@ -886,7 +915,7 @@ async def mark_chat_unread(chat_id: str, last_message_read_date_time: str) -> st
     return json.dumps({"status": "ok", "chat_id": chat_id, "marked": "unread"})
 
 
-@mcp.tool()
+@_tool
 async def get_user_presence(user_id: str) -> str:
     """Get the presence/availability status of a user.
 
@@ -904,7 +933,7 @@ async def get_user_presence(user_id: str) -> str:
     }, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def search_messages(query: str, size: int = 25) -> str:
     """Search Teams messages in all chats and channels the signed-in user can see.
 
@@ -933,7 +962,7 @@ async def search_messages(query: str, size: int = 25) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def get_user(query: str, limit: int = 10) -> str:
     """Find users whose display name or email address starts with `query`.
 
@@ -957,7 +986,7 @@ async def get_user(query: str, limit: int = 10) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-@mcp.tool()
+@_tool
 async def download_attachment(
     message_id: str,
     hosted_content_id: str,

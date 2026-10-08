@@ -1,7 +1,10 @@
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
+
+from teams_mcp.auth import AuthError
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -24,7 +27,7 @@ class GraphClient:
     def _headers(self) -> dict[str, str]:
         token = self._token_provider()
         if not token:
-            raise RuntimeError("Not authenticated. Call the login tool first.")
+            raise AuthError("Not authenticated. Call the login tool first.")
         return {"Authorization": f"Bearer {token}"}
 
     @staticmethod

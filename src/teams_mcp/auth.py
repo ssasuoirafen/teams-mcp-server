@@ -3,8 +3,11 @@ from pathlib import Path
 
 import msal
 
-
 DEFAULT_SCOPES = ["https://graph.microsoft.com/.default"]
+
+
+class AuthError(Exception):
+    """Sign-in is missing or failed; the message says what the user should do."""
 
 
 class AuthManager:
@@ -54,7 +57,7 @@ class AuthManager:
     def login(self) -> dict:
         flow = self._app.initiate_device_flow(scopes=self.scopes)
         if "user_code" not in flow:
-            raise RuntimeError(
+            raise AuthError(
                 f"Device flow failed: {flow.get('error_description', 'unknown error')}"
             )
         return flow
@@ -69,7 +72,7 @@ class AuthManager:
                     "preferred_username", "unknown"
                 ),
             }
-        raise RuntimeError(
+        raise AuthError(
             result.get("error_description", "Authentication failed")
         )
 

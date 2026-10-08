@@ -6,7 +6,7 @@ MCP server for Microsoft Teams via Microsoft Graph API. Delegated auth (device c
 
 ## Stack
 
-Python >=3.12 (dev pin: 3.14 via `.python-version`), `mcp[cli]` 2.x (`MCPServer`; the major is bounded `<3`, so the next SDK major is a deliberate port rather than a broken fresh install), httpx, msal. Registration-count smoke test in `tests/` (`uv run pytest`); ruff + pytest in the dev group (`uv sync`). CI runs on push/PR via `.github/workflows/ci.yml` (uv sync + pytest + advisory ruff).
+Python >=3.12 (dev pin: 3.14 via `.python-version`), `mcp[cli]` 2.x (`MCPServer`; the major is bounded `<3`, so the next SDK major is a deliberate port rather than a broken fresh install), httpx, msal. Tests in `tests/` (`uv run pytest`): `test_server.py` pins the tool surface and formatting, `test_tools.py` calls tools through an in-process `mcp.Client` over a fake Graph transport (`httpx.MockTransport`) and fake sign-in, with no network; ruff + pytest in the dev group (`uv sync`). CI runs on push/PR via `.github/workflows/ci.yml` (uv sync + pytest + advisory ruff).
 
 ## Commands
 
@@ -65,9 +65,12 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 
 ## Error handling
 
+- mcp 2.x passes only `ToolError` text to the client (an `is_error` result prefixed `Error executing tool <name>: `). Any other exception is a crash: the client sees only `Error executing tool <name>` and the traceback goes to the server log.
+- Tools are registered with `@_tool`, not `@mcp.tool()`: it re-raises the anticipated failures (`AuthError`, `GraphApiError`, `ValueError`) as `ToolError` and leaves everything else a crash, so real bugs keep their traceback
+- Argument checks inside a tool raise `ToolError` directly; `graph.py` and `auth.py` raise their own exceptions and stay unaware of MCP
 - `GraphApiError(status_code, code, message)` - raised by all graph helpers, contains parsed Graph API error JSON
 - 403 errors surface the Graph API message directly (e.g. "Insufficient privileges to complete the operation") - tools work with whatever scopes the user has, missing scopes produce clear errors
-- `RuntimeError("Not authenticated...")` - when no token available
+- `AuthError` (`auth.py`) - sign-in missing ("Not authenticated...", from `_require_auth()` or a token provider that returns nothing) or failed (device flow errors from `AuthManager`)
 
 ## Scopes (delegated)
 
@@ -87,7 +90,7 @@ Scopes requiring admin consent: `TeamMember.Read.All`, `ChannelMember.Read.All`,
 ## Adding a new tool
 
 1. Add graph method in `graph.py` (use existing `_get`/`_post`/`_post_no_content`/`_patch`/`_delete`)
-2. Add MCP tool in `server.py` (follow `_init_if_needed() -> _require_auth() -> call graph -> json.dumps` pattern)
+2. Add MCP tool in `server.py`: register it with `@_tool` and follow the `_init_if_needed() -> _require_auth() -> call graph -> json.dumps` pattern
 3. If a new scope is needed: no code change required - `.default` picks it up once consented (see the Scopes section).
 
 ## Known Quirks

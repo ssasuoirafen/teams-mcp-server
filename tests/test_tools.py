@@ -778,3 +778,51 @@ async def test_channel_link_without_team_is_error(install):
     assert result.is_error
     assert "team_id" in text(result)
     assert graph.requests == []
+
+
+async def test_out_of_range_timestamp_is_error(install):
+    graph = FakeChatMessages(every_minute(3))
+    install(graph)
+
+    result = await call("list_chat_messages", {
+        "chat_id": CHAT_ID, "before": "0001-01-01T00:00:00+05:00",
+    })
+
+    assert result.is_error
+    assert "before" in text(result)
+    assert graph.requests == []
+
+
+async def test_before_finer_than_a_millisecond_keeps_earlier_messages(install):
+    install(FakeChatMessages([
+        chat_message("2026-10-07T12:00:00.000Z"),
+        chat_message("2026-10-07T12:00:00.001Z"),
+    ]))
+
+    page = await chat_page(before="2026-10-07T12:00:00.000500Z")
+
+    assert [m["createdDateTime"] for m in page["messages"]] == ["2026-10-07T12:00:00.000Z"]
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+async def test_blank_time_bounds_mean_no_bound(install, blank):
+    install(FakeChatMessages(every_minute(2)))
+
+    page = await chat_page(before=blank, after=blank)
+
+    assert len(page["messages"]) == 2
+
+
+@pytest.mark.parametrize("mentions", ["", "null", "[]"])
+async def test_empty_mentions_send_a_plain_message(install, mentions):
+    graph = RecordingGraph(lambda request: httpx.Response(
+        201, json=chat_message("2026-10-08T09:00:00.000Z"),
+    ))
+    install(graph)
+
+    result = await call("send_chat_message", {
+        "chat_id": CHAT_ID, "content": "hello", "mentions": mentions,
+    })
+
+    assert not result.is_error, text(result)
+    assert "mentions" not in json.loads(graph.requests[0].content)

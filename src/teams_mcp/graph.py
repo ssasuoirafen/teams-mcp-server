@@ -1,6 +1,6 @@
 import re
 from collections.abc import AsyncIterator, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -19,8 +19,15 @@ _UNSAFE_PATH = re.compile(r"(^|/)\.\.?(/|$)|[?#%\\\s]")
 
 
 def _odata_datetime(value: datetime) -> str:
-    """UTC with milliseconds and a Z suffix, the form Graph's $filter examples use."""
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    """UTC with milliseconds and a Z suffix, the form Graph's $filter examples use.
+
+    Graph keeps milliseconds, so a finer value is rounded up: `lt` then still keeps a
+    message created in the same millisecond but before `value`.
+    """
+    utc = value.astimezone(UTC)
+    if utc.microsecond % 1000:
+        utc += timedelta(microseconds=1000 - utc.microsecond % 1000)
+    return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 class GraphApiError(Exception):

@@ -107,18 +107,21 @@ def _check_limit(limit: int) -> None:
 
 
 def _parse_timestamp(name: str, value: str | None) -> datetime | None:
-    """Read an ISO 8601 argument as an aware UTC datetime; no offset means UTC."""
-    if value is None:
+    """Read an ISO 8601 argument as an aware UTC datetime; no offset means UTC.
+
+    A blank value means no bound: some clients send "" for an omitted argument.
+    """
+    if value is None or not value.strip():
         return None
     try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
+        parsed = datetime.fromisoformat(value.strip())
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except (ValueError, OverflowError):  # OverflowError: shifting e.g. year 1 to UTC
         raise ToolError(
             f"{name} must be an ISO 8601 timestamp such as 2026-10-07T12:00:00Z, got {value!r}"
         ) from None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -344,16 +347,19 @@ def _parse_mentions(mentions: list | str | None) -> list[dict] | None:
     """Accept mentions as list (deserialized by the SDK) or JSON string.
 
     Anything malformed is an error before sending: a message cannot gain mentions later
-    (update_message turns them into plain text).
+    (update_message turns them into plain text). A blank string or JSON null means no
+    mentions, since some clients send those for an omitted argument.
     """
-    if mentions is None:
-        return None
     if isinstance(mentions, str):
+        if not mentions.strip():
+            return None
         try:
             mentions = json.loads(mentions)
         except json.JSONDecodeError as exc:
             raise ToolError(f"mentions is not valid JSON ({exc}); expected a list of "
                             f"{_MENTION_SHAPE}") from None
+    if mentions is None:
+        return None
     if not isinstance(mentions, list):
         raise ToolError(f"mentions must be a list of {_MENTION_SHAPE}")
     for i, mention in enumerate(mentions):

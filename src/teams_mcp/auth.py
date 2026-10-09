@@ -50,11 +50,33 @@ class AuthManager:
         self._cache = msal.SerializableTokenCache()
         self._cache_text: str | None = None  # the file content this process last read or wrote
         self._load_cache()
-        self._app = msal.PublicClientApplication(
-            client_id=self.client_id,
-            authority=f"https://login.microsoftonline.com/{self.tenant_id}",
-            token_cache=self._cache,
-        )
+        self._msal_app: msal.PublicClientApplication | None = None
+
+    @property
+    def _app(self) -> msal.PublicClientApplication:
+        """The MSAL app, created on first use.
+
+        msal contacts Entra while constructing it (tenant discovery), so a wrong tenant or a
+        missing network fails here, with a reason, on a tool call or `teams-mcp login`
+        rather than as a crash of the server at start-up.
+        """
+        if self._msal_app is None:
+            with _network_errors_as_auth_errors("Reaching Entra"):
+                try:
+                    self._msal_app = msal.PublicClientApplication(
+                        client_id=self.client_id,
+                        authority=f"https://login.microsoftonline.com/{self.tenant_id}",
+                        token_cache=self._cache,
+                    )
+                except ValueError as exc:
+                    # msal's own message is generic; Entra's reason (e.g. AADSTS90002 Tenant
+                    # not found) is on the discovery error it was handling
+                    reason = exc.__context__ or exc
+                    raise AuthError(
+                        f"Entra rejected TEAMS_MCP_TENANT_ID {self.tenant_id!r}, check the "
+                        f"tenant ID: {reason}"
+                    ) from exc
+        return self._msal_app
 
     def _load_cache(self) -> bool:
         """Load the cache file if it changed since this process last read or wrote it.

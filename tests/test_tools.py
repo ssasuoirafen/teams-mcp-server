@@ -189,14 +189,32 @@ class FakeMsalApp:
     As in msal: accounts are what the cache holds, a silent refresh needs a refresh
     token in the cache, and a successful device code sign-in lands in the cache.
     `network_error`, when set, is raised by every call that would reach Entra, the way
-    msal lets its `requests` exceptions through.
+    msal lets its `requests` exceptions through. `unknown_tenant` makes the constructor
+    fail the way msal's tenant discovery does for a tenant Entra does not know.
     """
 
     device_flow: dict = {}
     device_flow_result: dict = {}
     network_error: Exception | None = None
+    unknown_tenant: bool = False
 
     def __init__(self, client_id, authority=None, token_cache=None, **kwargs):
+        if self.unknown_tenant:
+            tenant = authority.rsplit("/", 1)[-1]
+            try:
+                raise ValueError(
+                    f"OIDC Discovery failed on https://login.microsoftonline.com/{tenant}/v2.0/"
+                    ".well-known/openid-configuration. HTTP status: 400, Error: "
+                    '{"error":"invalid_tenant","error_description":"AADSTS90002: Tenant '
+                    f"'{tenant}' not found. Check to make sure you have the correct tenant ID "
+                    'and are signing into the correct cloud."}'
+                )
+            except ValueError:
+                # msal raises its generic message while handling the discovery error
+                raise ValueError(  # noqa: B904 - mirrors msal, which chains implicitly
+                    f"Unable to get authority configuration for {authority}. "
+                    "Also please double check your tenant name or GUID is correct."
+                )
         self._cache = token_cache
 
     def _reach_entra(self):
@@ -287,10 +305,12 @@ def msal_app(monkeypatch, tmp_path):
         *,
         cache: dict | None = None,
         network_error: Exception | None = None,
+        unknown_tenant: bool = False,
     ) -> AuthManager:
         monkeypatch.setattr(FakeMsalApp, "device_flow", device_flow or {})
         monkeypatch.setattr(FakeMsalApp, "device_flow_result", device_flow_result or {})
         monkeypatch.setattr(FakeMsalApp, "network_error", network_error)
+        monkeypatch.setattr(FakeMsalApp, "unknown_tenant", unknown_tenant)
         if cache is not None:
             cache_dir.mkdir(exist_ok=True)
             (cache_dir / "token_cache.json").write_text(json.dumps(cache), encoding="utf-8")
@@ -1078,3 +1098,26 @@ def test_terminal_login_without_network_exits_with_the_reason(cli, msal_app, cap
     assert run_cli("login") == 1
 
     assert "ConnectionError" in capsys.readouterr().err
+
+
+def test_terminal_login_with_an_unknown_tenant_names_the_problem(cli, msal_app, capsys):
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT, unknown_tenant=True)
+
+    assert run_cli("login") == 1
+
+    err = capsys.readouterr().err
+    assert "AADSTS90002" in err
+    assert "TEAMS_MCP_TENANT_ID" in err
+    assert "Traceback" not in err
+
+
+async def test_unknown_tenant_reaches_the_client_instead_of_failing_the_server(install, msal_app):
+    # constructing the AuthManager is what the server does at start-up; it must not fail
+    install(RecordingGraph(), auth=msal_app(unknown_tenant=True))
+
+    result = await call("list_teams")
+
+    assert result.is_error
+    assert "AADSTS90002" in text(result)
+    # logging in again would fail the same way, so this must not read as "Not authenticated"
+    assert "Not authenticated" not in text(result)

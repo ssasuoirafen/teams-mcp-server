@@ -37,7 +37,7 @@ server.py (MCP tools) -> graph.py (Graph API client) -> Microsoft Graph REST API
 ## Tools
 
 ### Auth
-- No sign-in tools: the only way in is `teams-mcp login` in a terminal (`main()` subcommand). It prints a device code, copies it to the clipboard when the machine has one (`_copy_to_clipboard`; no clipboard is not an error), and writes the token cache the server reads. The agent never relays a code
+- No sign-in tools: the only way in is `teams-mcp login` in a terminal (`main()` subcommand). It prints a device code, copies it to the clipboard when the machine has one (`_copy_to_clipboard`), opens the sign-in page on a local desktop (`_can_open_browser`: not over SSH, and on Linux only with a display server), and writes the token cache the server reads. The agent never relays a code
 - "Not authenticated" (`auth.NOT_AUTHENTICATED`) tells the agent to ask the user to run that command; the server instructions key off that prefix
 - All tools are async: `@_tool` refuses a sync function at registration
 

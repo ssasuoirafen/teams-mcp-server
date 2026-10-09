@@ -79,7 +79,7 @@ Sign in once from a terminal, with the same `TEAMS_MCP_TENANT_ID` and `TEAMS_MCP
 uvx --from git+https://github.com/ssasuoirafen/teams-mcp-server teams-mcp login
 ```
 
-It prints a URL and a device code and copies the code to the clipboard (`pbcopy`, `clip`, or `wl-copy`/`xclip`/`xsel` when available). Open the URL, paste the code and sign in; the command then prints the account. The token is cached in `~/.teams-mcp/token_cache.json` and renewed silently. A running server picks up the new sign-in on its next tool call, with no restart.
+It prints a URL and a device code, copies the code to the clipboard (`pbcopy`, `clip`, or `wl-copy`/`xclip`/`xsel` when available) and opens the URL in the browser on a local desktop (not over SSH). Paste the code and sign in; the command then prints the account. The token is cached in `~/.teams-mcp/token_cache.json` and renewed silently. A running server picks up the new sign-in on its next tool call, with no restart.
 
 ## Development
 

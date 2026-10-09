@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import webbrowser
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -1178,6 +1179,30 @@ def _copy_to_clipboard(text: str) -> bool:
     return True
 
 
+def _can_open_browser() -> bool:
+    """True on a local desktop session.
+
+    Over SSH a browser would open on the remote machine's desktop, out of sight, and on
+    Linux without a display server webbrowser falls back to a console browser that takes
+    over the terminal.
+    """
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return False
+    if sys.platform.startswith("linux"):
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return True
+
+
+def _open_in_browser(url: str) -> bool:
+    """Open url in the default browser, as `gh auth login --web` does; False if it did not."""
+    if not _can_open_browser():
+        return False
+    try:
+        return webbrowser.open(url)
+    except webbrowser.Error:  # no runnable browser; the URL is printed anyway
+        return False
+
+
 def _login_in_terminal() -> int:
     """Device code sign-in on the terminal; it writes the cache the server reads."""
     try:
@@ -1188,6 +1213,8 @@ def _login_in_terminal() -> int:
         print(flow["message"], flush=True)
         if _copy_to_clipboard(flow["user_code"]):
             print("The code is copied to the clipboard.", flush=True)
+        if _open_in_browser(flow["verification_uri"]):
+            print(f"Opened {flow['verification_uri']} in the browser.", flush=True)
         result = auth.complete_login(flow)
     except AuthError as exc:
         print(f"teams-mcp login: {exc}", file=sys.stderr)

@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+import webbrowser
 from datetime import datetime, timedelta
 
 import httpx
@@ -1022,12 +1023,13 @@ def run_cli(*argv: str) -> int:
 def cli(monkeypatch):
     """Let server.main() set the module globals; restore them afterwards.
 
-    No clipboard by default, so a test run never overwrites the developer's clipboard;
-    the clipboard tests set their own.
+    No clipboard and no browser by default, so a test run never overwrites the
+    developer's clipboard or opens browser tabs; the tests for those set their own.
     """
     monkeypatch.setattr(server, "auth", None)
     monkeypatch.setattr(server, "graph", None)
     monkeypatch.setattr(server, "_clipboard_command", lambda: None)
+    monkeypatch.setattr(server, "_can_open_browser", lambda: False)
 
 
 def test_terminal_login_shows_the_code_and_signs_in(cli, msal_app, capsys):
@@ -1195,3 +1197,81 @@ def test_clipboard_command_per_platform(monkeypatch, platform, installed, expect
     )
 
     assert server._clipboard_command() == expected
+
+
+# --- the sign-in page opens in the browser, as `gh auth login --web` does --------
+
+
+class RecordingBrowser:
+    """Stands in for webbrowser.open: records URLs and answers like it would."""
+
+    def __init__(self, opened: bool = True, error: Exception | None = None):
+        self.urls: list[str] = []
+        self._opened = opened
+        self._error = error
+
+    def __call__(self, url, *args, **kwargs):
+        self.urls.append(url)
+        if self._error is not None:
+            raise self._error
+        return self._opened
+
+
+def test_terminal_login_opens_the_sign_in_page(cli, msal_app, capsys, monkeypatch):
+    browser = RecordingBrowser()
+    monkeypatch.setattr(server, "_can_open_browser", lambda: True)
+    monkeypatch.setattr(server.webbrowser, "open", browser)
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    assert browser.urls == ["https://microsoft.com/devicelogin"]
+    assert "in the browser" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("browser", [
+    RecordingBrowser(opened=False),  # no browser registered
+    RecordingBrowser(error=webbrowser.Error("could not locate runnable browser")),
+])
+def test_terminal_login_works_when_no_browser_opens(cli, msal_app, capsys, monkeypatch, browser):
+    monkeypatch.setattr(server, "_can_open_browser", lambda: True)
+    monkeypatch.setattr(server.webbrowser, "open", browser)
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    out = capsys.readouterr().out
+    assert "https://microsoft.com/devicelogin" in out
+    assert "in the browser" not in out
+
+
+def test_terminal_login_leaves_the_browser_alone_off_the_desktop(
+    cli, msal_app, capsys, monkeypatch,
+):
+    browser = RecordingBrowser()
+    monkeypatch.setattr(server.webbrowser, "open", browser)
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    assert browser.urls == []
+
+
+@pytest.mark.parametrize("platform, env, expected", [
+    ("darwin", {}, True),
+    ("win32", {}, True),
+    ("darwin", {"SSH_CONNECTION": "10.0.0.5 51234 10.0.0.9 22"}, False),
+    ("darwin", {"SSH_TTY": "/dev/ttys004"}, False),
+    ("linux", {"DISPLAY": ":0"}, True),
+    ("linux", {"WAYLAND_DISPLAY": "wayland-0"}, True),
+    # no display server: webbrowser would fall back to a console browser in the terminal
+    ("linux", {}, False),
+])
+def test_browser_opens_only_on_a_local_desktop(monkeypatch, platform, env, expected):
+    for name in ("SSH_CONNECTION", "SSH_TTY", "DISPLAY", "WAYLAND_DISPLAY"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "platform", platform)
+
+    assert server._can_open_browser() is expected

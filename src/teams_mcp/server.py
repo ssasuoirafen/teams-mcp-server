@@ -5,6 +5,8 @@ import inspect
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime
@@ -1138,6 +1140,44 @@ async def download_attachment(
     return json.dumps({"path": path, "size": len(data)}, ensure_ascii=False, indent=2)
 
 
+def _clipboard_command() -> list[str] | None:
+    """The command that puts its stdin on the system clipboard here, if there is one."""
+    if sys.platform == "darwin":
+        return ["pbcopy"]
+    if sys.platform == "win32":
+        return ["clip"]
+    for command in (
+        ["wl-copy"],
+        # without -selection clipboard, xclip fills the PRIMARY selection instead
+        ["xclip", "-selection", "clipboard"],
+        ["xsel", "--clipboard", "--input"],
+    ):
+        if shutil.which(command[0]):
+            return command
+    return None
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Put text on the system clipboard, as `gh auth login --clipboard` does.
+
+    Returns False when there is no clipboard here (no tool, or no display over SSH); the
+    caller has printed the text anyway, so that is not an error.
+    """
+    command = _clipboard_command()
+    if command is None:
+        return False
+    try:
+        # xclip and wl-copy fork to serve the clipboard and keep inherited pipes open, so
+        # capturing their output would block until the timeout
+        subprocess.run(
+            command, input=text, text=True, check=True, timeout=5,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
 def _login_in_terminal() -> int:
     """Device code sign-in on the terminal; it writes the cache the server reads."""
     try:
@@ -1146,6 +1186,8 @@ def _login_in_terminal() -> int:
             return 0
         flow = auth.login()
         print(flow["message"], flush=True)
+        if _copy_to_clipboard(flow["user_code"]):
+            print("The code is copied to the clipboard.", flush=True)
         result = auth.complete_login(flow)
     except AuthError as exc:
         print(f"teams-mcp login: {exc}", file=sys.stderr)

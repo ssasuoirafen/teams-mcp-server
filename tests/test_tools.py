@@ -8,6 +8,9 @@ AuthManager over a fake MSAL app, so no test touches the network or the token ca
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -1017,9 +1020,14 @@ def run_cli(*argv: str) -> int:
 
 @pytest.fixture
 def cli(monkeypatch):
-    """Let server.main() set the module globals; restore them afterwards."""
+    """Let server.main() set the module globals; restore them afterwards.
+
+    No clipboard by default, so a test run never overwrites the developer's clipboard;
+    the clipboard tests set their own.
+    """
     monkeypatch.setattr(server, "auth", None)
     monkeypatch.setattr(server, "graph", None)
+    monkeypatch.setattr(server, "_clipboard_command", lambda: None)
 
 
 def test_terminal_login_shows_the_code_and_signs_in(cli, msal_app, capsys):
@@ -1121,3 +1129,69 @@ async def test_unknown_tenant_reaches_the_client_instead_of_failing_the_server(i
     assert "AADSTS90002" in text(result)
     # logging in again would fail the same way, so this must not read as "Not authenticated"
     assert "Not authenticated" not in text(result)
+
+
+# --- the device code goes to the clipboard, as `gh auth login --clipboard` does ----
+
+
+class RecordingRun:
+    """Stands in for subprocess.run: records each command and its stdin."""
+
+    def __init__(self, error: Exception | None = None):
+        self.calls: list[tuple[list[str], str]] = []
+        self._error = error
+
+    def __call__(self, args, *, input=None, **kwargs):
+        self.calls.append((args, input))
+        if self._error is not None:
+            raise self._error
+        return subprocess.CompletedProcess(args, 0)
+
+
+def test_terminal_login_puts_the_code_on_the_clipboard(cli, msal_app, capsys, monkeypatch):
+    run = RecordingRun()
+    monkeypatch.setattr(server, "_clipboard_command", lambda: ["clip-tool"])
+    monkeypatch.setattr(server.subprocess, "run", run)
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    assert run.calls == [(["clip-tool"], "F7KQ2XRTN")]
+    assert "clipboard" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("clipboard_command, run", [
+    (None, RecordingRun()),  # no clipboard tool on this machine
+    (["clip-tool"], RecordingRun(subprocess.CalledProcessError(1, ["clip-tool"]))),  # no display
+    (["clip-tool"], RecordingRun(FileNotFoundError("clip-tool"))),
+])
+def test_terminal_login_works_without_a_clipboard(
+    cli, msal_app, capsys, monkeypatch, clipboard_command, run,
+):
+    monkeypatch.setattr(server, "_clipboard_command", lambda: clipboard_command)
+    monkeypatch.setattr(server.subprocess, "run", run)
+    msal_app(DEVICE_FLOW, SIGN_IN_RESULT)
+
+    assert run_cli("login") == 0
+
+    out = capsys.readouterr().out
+    assert "F7KQ2XRTN" in out
+    assert "clipboard" not in out
+
+
+@pytest.mark.parametrize("platform, installed, expected", [
+    ("darwin", set(), ["pbcopy"]),
+    ("win32", set(), ["clip"]),
+    ("linux", {"wl-copy", "xclip"}, ["wl-copy"]),
+    # without -selection clipboard, xclip fills the PRIMARY selection, not the clipboard
+    ("linux", {"xclip"}, ["xclip", "-selection", "clipboard"]),
+    ("linux", {"xsel"}, ["xsel", "--clipboard", "--input"]),
+    ("linux", set(), None),
+])
+def test_clipboard_command_per_platform(monkeypatch, platform, installed, expected):
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(
+        shutil, "which", lambda name: f"/usr/bin/{name}" if name in installed else None,
+    )
+
+    assert server._clipboard_command() == expected
